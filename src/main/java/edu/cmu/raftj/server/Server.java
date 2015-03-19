@@ -6,7 +6,9 @@ package edu.cmu.raftj.server;
 public interface Server {
 
     enum Role {
-        Leader, Follower, Candidate
+        Leader,
+        Follower,
+        Candidate
     }
 
 }

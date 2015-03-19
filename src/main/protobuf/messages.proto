@@ -1,0 +1,21 @@
+package edu.cmu.raftj.rpc;
+
+message LogEntry {
+    required int64 logIndex = 1;
+}
+
+message VoteRequest {
+    required int64 candidateTerm = 1;
+    required string candidateId = 2;
+    required int64 lastLogIndex = 3;
+    required int64 lastLogTerm = 4;
+}
+
+message AppendEntriesRequest {
+    required int64 leaderTerm = 1;
+    required string leaderId = 2;
+    required int64 prevLogIndex = 3;
+    required int64 prevLogTerm = 4;
+    repeated LogEntry logEntries = 5;
+    required int64 leaderCommitIndex = 6;
+}
