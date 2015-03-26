@@ -1,5 +1,6 @@
 package edu.cmu.raftj.rpc;
 
+import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
 import edu.cmu.raftj.rpc.Messages.VoteRequest;
 
 /**
@@ -8,5 +9,7 @@ import edu.cmu.raftj.rpc.Messages.VoteRequest;
 public interface Communicator {
 
     void sendVoteRequest(VoteRequest voteRequest);
+
+    void sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest);
 
 }

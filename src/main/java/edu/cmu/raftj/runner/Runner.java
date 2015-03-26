@@ -1,7 +1,7 @@
 package edu.cmu.raftj.runner;
 
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
 import edu.cmu.raftj.server.DefaultServer;
 import edu.cmu.raftj.server.Server;
@@ -24,9 +24,9 @@ public final class Runner {
         return Long.parseLong(System.getProperty("raftj.election.timeout", "1000"));
     }
 
-    private static ImmutableList<HostAndPort> getServersList() {
+    private static ImmutableSet<HostAndPort> getServersList() {
         return FluentIterable.of(System.getProperty("raftj.servers", "").split(","))
-                .transform(HostAndPort::fromString).toList();
+                .transform(HostAndPort::fromString).toSet();
     }
 
     private static HostAndPort getServerHostAndPort() {
