@@ -20,6 +20,10 @@ public final class Runner {
     private Runner() {
     }
 
+    private static long getElectionTimeout() {
+        return Long.parseLong(System.getProperty("raftj.election.timeout", "1000"));
+    }
+
     private static ImmutableList<HostAndPort> getServersList() {
         return FluentIterable.of(System.getProperty("raftj.servers", "").split(","))
                 .transform(HostAndPort::fromString).toList();
@@ -36,15 +40,7 @@ public final class Runner {
         checkArgument(Files.exists(path) && Files.isRegularFile(path) && Files.isReadable(path),
                 "%s is not a regular readable file", path);
 
-        ImmutableList<HostAndPort> serversList = getServersList();
-        checkArgument(!serversList.isEmpty(), "server list cannot be empty");
-        checkArgument(serversList.size() % 2 == 1, "must be odd number");
-        HostAndPort hostAndPort = getServerHostAndPort();
-        checkArgument(serversList.contains(hostAndPort),
-                "host and port %s not in the given servers list %s", hostAndPort, serversList);
-
-        Server server = new DefaultServer(hostAndPort, serversList);
-
+        Server server = new DefaultServer(getServerHostAndPort(), getServersList(), getElectionTimeout());
 
     }
 }
