@@ -12,4 +12,6 @@ public interface Communicator {
 
     void sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest);
 
+    void setRequestListener(RequestListener requestListener);
+
 }

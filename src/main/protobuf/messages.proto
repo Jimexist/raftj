@@ -19,3 +19,11 @@ message AppendEntriesRequest {
     repeated LogEntry logEntries = 5;
     required int64 leaderCommitIndex = 6;
 }
+
+// TODO this is necessary?
+message Request {
+    oneof payload {
+        VoteRequest voteRequest = 1;
+        AppendEntriesRequest appendEntriesRequest = 2;
+    }
+}
