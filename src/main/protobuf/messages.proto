@@ -11,6 +11,11 @@ message VoteRequest {
     required int64 lastLogTerm = 4;
 }
 
+message VoteResponse {
+    required string senderId = 1;
+    required bool response = 2;
+}
+
 message AppendEntriesRequest {
     required int64 leaderTerm = 1;
     required string leaderId = 2;
@@ -18,6 +23,11 @@ message AppendEntriesRequest {
     required int64 prevLogTerm = 4;
     repeated LogEntry logEntries = 5;
     required int64 leaderCommitIndex = 6;
+}
+
+message AppendEntriesResponse {
+    required string senderId = 1;
+    required bool response = 2;
 }
 
 // TODO this is necessary?

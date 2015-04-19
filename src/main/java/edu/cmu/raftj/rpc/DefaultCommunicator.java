@@ -2,11 +2,11 @@ package edu.cmu.raftj.rpc;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.net.HostAndPort;
-import com.google.common.util.concurrent.AbstractExecutionThreadService;
-import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
-import edu.cmu.raftj.rpc.Messages.Request;
-import edu.cmu.raftj.rpc.Messages.VoteRequest;
+import com.google.common.util.concurrent.*;
+import com.google.protobuf.GeneratedMessage;
+import edu.cmu.raftj.rpc.Messages.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,13 +17,14 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Collection;
+import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.function.Function;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Preconditions.*;
+import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
+import static java.util.concurrent.Executors.newWorkStealingPool;
 
 /**
  * Default {@link Communicator} implementation that runs server on a dedicated thread, and boardCasts
@@ -35,7 +36,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
 
     private final HostAndPort hostAndPort;
     private final ImmutableSet<HostAndPort> audience;
-    private final ExecutorService executorService = Executors.newWorkStealingPool();
+    private final ListeningExecutorService boardCastExecutor = listeningDecorator(newWorkStealingPool());
     private final ServerSocket serverSocket = new ServerSocket();
     private RequestListener requestListener;
 
@@ -47,28 +48,47 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                 audience, hostAndPort);
     }
 
-    private void boardCast(Request request) {
+    private <T extends GeneratedMessage> ListenableFuture<? extends Collection<T>> boardCast(Request request, Function<InputStream, T> builder) {
+        final List<ListenableFuture<T>> list = Lists.newArrayList();
         for (HostAndPort hostAndPort : audience) {
-            executorService.execute(() -> {
+            final SettableFuture<T> settableFuture = SettableFuture.create();
+            boardCastExecutor.execute(() -> {
                 try (final Socket socket = new Socket(InetAddress.getByName(hostAndPort.getHostText()), hostAndPort.getPort());
-                     final OutputStream outputStream = socket.getOutputStream()) {
+                     final OutputStream outputStream = socket.getOutputStream();
+                     final InputStream inputStream = socket.getInputStream()) {
                     request.writeTo(outputStream);
+                    settableFuture.set(builder.apply(inputStream));
                 } catch (Exception e) {
                     logger.warn("error in sending vote request to {}, exception {}",
                             hostAndPort, Throwables.getStackTraceAsString(e));
+                    settableFuture.setException(e);
                 }
             });
+            list.add(settableFuture);
         }
+        return Futures.allAsList(list);
     }
 
     @Override
-    public void sendVoteRequest(VoteRequest voteRequest) {
-        boardCast(Request.newBuilder().setVoteRequest(voteRequest).build());
+    public ListenableFuture<? extends Collection<VoteResponse>> sendVoteRequest(VoteRequest voteRequest) {
+        return boardCast(Request.newBuilder().setVoteRequest(voteRequest).build(), (is) -> {
+            try {
+                return VoteResponse.parseFrom(is);
+            } catch (IOException e) {
+                throw Throwables.propagate(e);
+            }
+        });
     }
 
     @Override
-    public void sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
-        boardCast(Request.newBuilder().setAppendEntriesRequest(appendEntriesRequest).build());
+    public ListenableFuture<? extends Collection<AppendEntriesResponse>> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
+        return boardCast(Request.newBuilder().setAppendEntriesRequest(appendEntriesRequest).build(), (is) -> {
+            try {
+                return AppendEntriesResponse.parseFrom(is);
+            } catch (IOException e) {
+                throw Throwables.propagate(e);
+            }
+        });
     }
 
     @Override
