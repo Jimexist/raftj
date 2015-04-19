@@ -20,7 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.Iterables.all;
 
 /**
- * Created by jiayu on 3/19/15.
+ * Main entrance to the program.
  */
 public final class Runner {
 

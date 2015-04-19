@@ -4,7 +4,7 @@ import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
 import edu.cmu.raftj.rpc.Messages.VoteRequest;
 
 /**
- * Created by jiayu on 3/19/15.
+ * Communication module for {@link edu.cmu.raftj.server.Server}
  */
 public interface Communicator {
 

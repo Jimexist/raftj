@@ -4,6 +4,9 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
+import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
+import edu.cmu.raftj.rpc.Messages.Request;
+import edu.cmu.raftj.rpc.Messages.VoteRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,25 +35,23 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
 
     private final HostAndPort hostAndPort;
     private final ImmutableSet<HostAndPort> audience;
-    private final ExecutorService executorService;
-    private final ServerSocket serverSocket;
+    private final ExecutorService executorService = Executors.newWorkStealingPool();
+    private final ServerSocket serverSocket = new ServerSocket();
     private RequestListener requestListener;
 
     public DefaultCommunicator(HostAndPort hostAndPort, Set<HostAndPort> audience) throws IOException {
-        this.hostAndPort = checkNotNull(hostAndPort);
+        this.hostAndPort = checkNotNull(hostAndPort, "host and port");
         this.audience = ImmutableSet.copyOf(audience);
         checkArgument(!audience.contains(hostAndPort),
                 "server audiences %s cannot contain this server %s",
                 audience, hostAndPort);
-        this.executorService = Executors.newWorkStealingPool();
-        this.serverSocket = new ServerSocket();
     }
 
-    private void boardCast(Messages.Request request) {
+    private void boardCast(Request request) {
         for (HostAndPort hostAndPort : audience) {
             executorService.execute(() -> {
-                try (Socket socket = new Socket(InetAddress.getByName(hostAndPort.getHostText()), hostAndPort.getPort());
-                     OutputStream outputStream = socket.getOutputStream()) {
+                try (final Socket socket = new Socket(InetAddress.getByName(hostAndPort.getHostText()), hostAndPort.getPort());
+                     final OutputStream outputStream = socket.getOutputStream()) {
                     request.writeTo(outputStream);
                 } catch (Exception e) {
                     logger.warn("error in sending vote request to {}, exception {}",
@@ -61,13 +62,13 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     }
 
     @Override
-    public void sendVoteRequest(Messages.VoteRequest voteRequest) {
-        boardCast(Messages.Request.newBuilder().setVoteRequest(voteRequest).build());
+    public void sendVoteRequest(VoteRequest voteRequest) {
+        boardCast(Request.newBuilder().setVoteRequest(voteRequest).build());
     }
 
     @Override
-    public void sendAppendEntriesRequest(Messages.AppendEntriesRequest appendEntriesRequest) {
-        boardCast(Messages.Request.newBuilder().setAppendEntriesRequest(appendEntriesRequest).build());
+    public void sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
+        boardCast(Request.newBuilder().setAppendEntriesRequest(appendEntriesRequest).build());
     }
 
     @Override
@@ -86,9 +87,11 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     protected void run() throws Exception {
         checkState(null != requestListener, "request listener not set");
         while (isRunning()) {
-            try (Socket client = serverSocket.accept();
-                 InputStream inputStream = client.getInputStream()) {
-                Messages.Request request = Messages.Request.parseFrom(inputStream);
+            try (final Socket client = serverSocket.accept();
+                 final InputStream inputStream = client.getInputStream()) {
+                final Request request = Request.parseFrom(inputStream);
+                logger.info("handling {} request from {}:{}",
+                        request.getPayloadCase(), client.getInetAddress(), client.getPort());
                 switch (request.getPayloadCase()) {
                     case APPENDENTRIESREQUEST:
                         requestListener.onAppendEntriesRequest(request.getAppendEntriesRequest());

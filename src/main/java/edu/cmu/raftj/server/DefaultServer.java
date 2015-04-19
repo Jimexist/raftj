@@ -2,8 +2,11 @@ package edu.cmu.raftj.server;
 
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
 import edu.cmu.raftj.rpc.Communicator;
-import edu.cmu.raftj.rpc.Messages;
+import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
+import edu.cmu.raftj.rpc.Messages.VoteRequest;
 import edu.cmu.raftj.rpc.RequestListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -13,9 +16,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * Created by jiayu on 3/19/15.
+ * Default implementation for {@link Server}
  */
 public class DefaultServer extends AbstractExecutionThreadService implements Server, RequestListener {
+
+    private static final Logger logger = LoggerFactory.getLogger(DefaultServer.class);
 
     private final AtomicLong currentTerm = new AtomicLong(0);
     private final AtomicReference<Role> currentRole = new AtomicReference<>(Role.Follower);
@@ -29,13 +34,13 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     }
 
     @Override
-    public void onVoteRequest(Messages.VoteRequest voteRequest) {
-
+    public void onVoteRequest(VoteRequest voteRequest) {
+        logger.info("vote request {}", voteRequest);
     }
 
     @Override
-    public void onAppendEntriesRequest(Messages.AppendEntriesRequest appendEntriesRequest) {
-
+    public void onAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
+        logger.info("append entries request {}", appendEntriesRequest);
     }
 
     @Override

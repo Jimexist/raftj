@@ -4,7 +4,7 @@ import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
 import edu.cmu.raftj.rpc.Messages.VoteRequest;
 
 /**
- * Created by jiayu on 3/26/15.
+ * Listening to RPC requests
  */
 public interface RequestListener {
 

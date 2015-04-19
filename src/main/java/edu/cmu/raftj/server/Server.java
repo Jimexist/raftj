@@ -1,7 +1,7 @@
 package edu.cmu.raftj.server;
 
 /**
- * Created by jiayu on 3/19/15.
+ * Server is the common abstraction for all types of running instances / participants.
  */
 public interface Server {
 
