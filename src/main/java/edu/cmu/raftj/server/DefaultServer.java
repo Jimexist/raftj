@@ -79,7 +79,6 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
 
         List<LogEntry> entryList = appendEntriesRequest.getLogEntriesList();
 
-
         return null;
     }
 
@@ -135,7 +134,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
             try {
                 Collection<VoteResponse> responses =
                         communicator.sendVoteRequest(voteRequest).get(electionTimeout, TimeUnit.MILLISECONDS);
-                long numberOfAyes = responses.stream().filter(VoteResponse::getVoteGranted).count();
+                long numberOfAyes = responses.stream().filter((vote) -> vote != null && vote.getVoteGranted()).count();
                 if (2 * (numberOfAyes + 1) > responses.size()) {
                     if (currentRole.compareAndSet(Candidate, Leader)) {
                         logger.info("won election, current term {}", currentTerm.get());

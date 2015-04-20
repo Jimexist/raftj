@@ -110,6 +110,11 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     }
 
     @Override
+    public ImmutableSet<HostAndPort> getAudience() {
+        return audience;
+    }
+
+    @Override
     protected void startUp() throws Exception {
         serverSocket.setReuseAddress(true);
     }
@@ -117,7 +122,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     @Override
     protected void run() throws Exception {
         checkState(null != requestListener, "request listener not set");
-        checkState(serverSocket.isBound(), "must be bound");
+        checkState(serverSocket.isBound(), "server socket must be bound");
         while (isRunning()) {
             try (final Socket client = serverSocket.accept();
                  final InputStream inputStream = client.getInputStream();

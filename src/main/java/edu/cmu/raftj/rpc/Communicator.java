@@ -1,5 +1,6 @@
 package edu.cmu.raftj.rpc;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.ListenableFuture;
 import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
@@ -32,6 +33,14 @@ public interface Communicator {
 
     void setRequestListener(RequestListener requestListener);
 
+    /**
+     * @return the host and port for current server
+     */
     HostAndPort getServerHostAndPort();
+
+    /**
+     * @return the audience of the communicator, i.e. other servers
+     */
+    ImmutableSet<HostAndPort> getAudience();
 
 }
