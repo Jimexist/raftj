@@ -17,7 +17,7 @@ import static org.mockito.MockitoAnnotations.initMocks;
 
 
 /**
- * Created by jiayu on 4/20/15.
+ * Test for {@link DefaultServer}.
  */
 public class DefaultServerTest {
 
@@ -40,7 +40,7 @@ public class DefaultServerTest {
 
     @After
     public void tearDown() throws Exception {
-        serviceManager.stopAsync().awaitStopped(1000L, TimeUnit.MILLISECONDS);
+        serviceManager.stopAsync().awaitStopped(1L, TimeUnit.SECONDS);
     }
 
     @Test

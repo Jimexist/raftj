@@ -105,8 +105,8 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     }
 
     @Override
-    public String getSenderId() {
-        return hostAndPort.toString();
+    public HostAndPort getServerHostAndPort() {
+        return hostAndPort;
     }
 
     @Override
@@ -127,20 +127,10 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                         request.getPayloadCase(), client.getInetAddress(), client.getPort());
                 switch (request.getPayloadCase()) {
                     case APPENDENTRIESREQUEST:
-                        requestListener.onAppendEntriesRequest(request.getAppendEntriesRequest());
-                        AppendEntriesResponse appendEntriesResponse = AppendEntriesResponse.newBuilder()
-                                .setResponse(true)
-                                .setSenderId(getSenderId())
-                                .build();
-                        appendEntriesResponse.writeTo(outputStream);
+                        requestListener.onAppendEntriesRequest(request.getAppendEntriesRequest()).writeTo(outputStream);
                         break;
                     case VOTEREQUEST:
-                        requestListener.onVoteRequest(request.getVoteRequest());
-                        VoteResponse voteResponse = VoteResponse.newBuilder()
-                                .setResponse(true)
-                                .setSenderId(getSenderId())
-                                .build();
-                        voteResponse.writeTo(outputStream);
+                        requestListener.onVoteRequest(request.getVoteRequest()).writeTo(outputStream);
                         break;
                     default:
                         throw new IllegalArgumentException("payload not set");

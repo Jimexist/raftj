@@ -12,8 +12,8 @@ message VoteRequest {
 }
 
 message VoteResponse {
-    required string senderId = 1;
-    required bool response = 2;
+    required int64 term = 1;
+    required bool voteGranted = 2;
 }
 
 message AppendEntriesRequest {
@@ -26,8 +26,8 @@ message AppendEntriesRequest {
 }
 
 message AppendEntriesResponse {
-    required string senderId = 1;
-    required bool response = 2;
+    required int64 term = 1;
+    required bool success = 2;
 }
 
 // TODO this is necessary?

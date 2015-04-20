@@ -17,4 +17,6 @@ public interface Server {
 
     long getElectionTimeout();
 
+    String getServerId();
+
 }

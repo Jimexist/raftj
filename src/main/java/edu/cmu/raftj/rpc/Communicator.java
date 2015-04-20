@@ -1,5 +1,6 @@
 package edu.cmu.raftj.rpc;
 
+import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.ListenableFuture;
 import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
 import edu.cmu.raftj.rpc.Messages.AppendEntriesResponse;
@@ -13,12 +14,24 @@ import java.util.Collection;
  */
 public interface Communicator {
 
+    /**
+     * invoked by candidates to gather votes
+     *
+     * @param voteRequest vote request
+     * @return yes or no
+     */
     ListenableFuture<? extends Collection<VoteResponse>> sendVoteRequest(VoteRequest voteRequest);
 
+    /**
+     * invoked by leader to replicate log entries and heartbeat
+     *
+     * @param appendEntriesRequest append request
+     * @return yes or no
+     */
     ListenableFuture<? extends Collection<AppendEntriesResponse>> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest);
 
     void setRequestListener(RequestListener requestListener);
 
-    String getSenderId();
+    HostAndPort getServerHostAndPort();
 
 }
