@@ -87,4 +87,19 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
             }
         }
     }
+
+    @Override
+    public Role getCurrentRole() {
+        return currentRole.get();
+    }
+
+    @Override
+    public long getCurrentTerm() {
+        return currentTerm.get();
+    }
+
+    @Override
+    public long getElectionTimeout() {
+        return electionTimeout;
+    }
 }

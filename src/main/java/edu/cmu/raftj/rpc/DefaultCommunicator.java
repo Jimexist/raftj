@@ -14,7 +14,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Collection;
@@ -37,16 +36,24 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     private final HostAndPort hostAndPort;
     private final ImmutableSet<HostAndPort> audience;
     private final ListeningExecutorService boardCastExecutor = listeningDecorator(newWorkStealingPool());
-    private final ServerSocket serverSocket = new ServerSocket();
+    private final ServerSocket serverSocket;
     private RequestListener requestListener;
 
     public DefaultCommunicator(HostAndPort hostAndPort, Set<HostAndPort> audience) throws IOException {
-        this.hostAndPort = checkNotNull(hostAndPort, "host and port");
+        this(new ServerSocket(hostAndPort.getPort(), 50, InetAddress.getByName(hostAndPort.getHostText())), audience);
+    }
+
+    DefaultCommunicator(ServerSocket serverSocket, Set<HostAndPort> audience) throws IOException {
+        this.serverSocket = checkNotNull(serverSocket);
+        this.serverSocket.setReuseAddress(true);
         this.audience = ImmutableSet.copyOf(audience);
+        hostAndPort = HostAndPort.fromParts(serverSocket.getInetAddress().getHostName(),
+                serverSocket.getLocalPort());
         checkArgument(!audience.contains(hostAndPort),
                 "server audiences %s cannot contain this server %s",
                 audience, hostAndPort);
     }
+
 
     private <T extends GeneratedMessage> ListenableFuture<? extends Collection<T>> boardCast(Request request, Function<InputStream, T> builder) {
         final List<ListenableFuture<T>> list = Lists.newArrayList();
@@ -94,30 +101,46 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     @Override
     public void setRequestListener(RequestListener requestListener) {
         checkState(!isRunning(), "must be set before run");
-        this.requestListener = requestListener;
+        this.requestListener = checkNotNull(requestListener, "request listener");
+    }
+
+    @Override
+    public String getSenderId() {
+        return hostAndPort.toString();
     }
 
     @Override
     protected void startUp() throws Exception {
         serverSocket.setReuseAddress(true);
-        serverSocket.bind(new InetSocketAddress(hostAndPort.getHostText(), hostAndPort.getPort()));
     }
 
     @Override
     protected void run() throws Exception {
         checkState(null != requestListener, "request listener not set");
+        checkState(serverSocket.isBound(), "must be bound");
         while (isRunning()) {
             try (final Socket client = serverSocket.accept();
-                 final InputStream inputStream = client.getInputStream()) {
+                 final InputStream inputStream = client.getInputStream();
+                 final OutputStream outputStream = client.getOutputStream()) {
                 final Request request = Request.parseFrom(inputStream);
                 logger.info("handling {} request from {}:{}",
                         request.getPayloadCase(), client.getInetAddress(), client.getPort());
                 switch (request.getPayloadCase()) {
                     case APPENDENTRIESREQUEST:
                         requestListener.onAppendEntriesRequest(request.getAppendEntriesRequest());
+                        AppendEntriesResponse appendEntriesResponse = AppendEntriesResponse.newBuilder()
+                                .setResponse(true)
+                                .setSenderId(getSenderId())
+                                .build();
+                        appendEntriesResponse.writeTo(outputStream);
                         break;
                     case VOTEREQUEST:
                         requestListener.onVoteRequest(request.getVoteRequest());
+                        VoteResponse voteResponse = VoteResponse.newBuilder()
+                                .setResponse(true)
+                                .setSenderId(getSenderId())
+                                .build();
+                        voteResponse.writeTo(outputStream);
                         break;
                     default:
                         throw new IllegalArgumentException("payload not set");

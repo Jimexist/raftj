@@ -19,4 +19,6 @@ public interface Communicator {
 
     void setRequestListener(RequestListener requestListener);
 
+    String getSenderId();
+
 }

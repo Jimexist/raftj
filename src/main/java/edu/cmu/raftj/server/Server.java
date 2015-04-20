@@ -11,4 +11,10 @@ public interface Server {
         Candidate
     }
 
+    Role getCurrentRole();
+
+    long getCurrentTerm();
+
+    long getElectionTimeout();
+
 }
