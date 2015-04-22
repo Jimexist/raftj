@@ -2,6 +2,7 @@ package edu.cmu.raftj.persistence;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
+import com.google.common.primitives.Ints;
 import edu.cmu.raftj.rpc.Messages.LogEntry;
 import edu.cmu.raftj.rpc.Messages.PersistenceEntry;
 import org.slf4j.Logger;
@@ -77,14 +78,28 @@ public class FilePersistence implements Persistence {
 
     @Override
     public synchronized long incrementAndGetCurrentTerm() {
-        final long newTerm = currentTerm + 1;
         try {
+            final long newTerm = currentTerm + 1;
             builder.setCurrentTerm(newTerm).build().writeTo(outputStream);
             currentTerm = newTerm;
         } catch (IOException e) {
             throw Throwables.propagate(e);
         }
         return currentTerm;
+    }
+
+    @Override
+    public synchronized boolean largerThanAndSetCurrentTerm(long term) {
+        try {
+            if (term > currentTerm) {
+                builder.setCurrentTerm(term).build().writeTo(outputStream);
+                currentTerm = term;
+                return true;
+            }
+        } catch (IOException e) {
+            throw Throwables.propagate(e);
+        }
+        return false;
     }
 
     @Nullable
@@ -108,12 +123,13 @@ public class FilePersistence implements Persistence {
     }
 
     @Override
-    public synchronized LogEntry getLogEntry(int index) {
-        return entries.get(index);
+    public synchronized LogEntry getLogEntry(long index) {
+        // we have to be practical
+        return entries.get(Ints.checkedCast(index));
     }
 
     @Override
-    public synchronized int getLogEntrySize() {
+    public synchronized long getLogEntriesSize() {
         return entries.size();
     }
 

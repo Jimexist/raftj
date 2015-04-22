@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static edu.cmu.raftj.server.Server.Role.Candidate;
+import static edu.cmu.raftj.server.Server.Role.Follower;
 import static edu.cmu.raftj.server.Server.Role.Leader;
 
 /**
@@ -38,7 +39,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
 
     private final BlockingDeque<Long> heartbeats = Queues.newLinkedBlockingDeque();
 
-    private final AtomicReference<Role> currentRole = new AtomicReference<>(Role.Follower);
+    private final AtomicReference<Role> currentRole = new AtomicReference<>(Follower);
     private final long electionTimeout;
     private final Communicator communicator;
     private final Persistence persistence;
@@ -52,17 +53,22 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
         this.persistence = checkNotNull(persistence, "persistence");
     }
 
+    /**
+     * sync current term with a potential larger term
+     *
+     * @param term term
+     */
+    private void syncCurrentTerm(long term) {
+        if (persistence.largerThanAndSetCurrentTerm(term)) {
+            logger.info("bump current term to be {}", term);
+            currentRole.set(Follower);
+        }
+    }
+
     @Override
     public VoteResponse onVoteRequest(VoteRequest voteRequest) {
         logger.info("vote request {}", voteRequest);
-
-        final long term = voteRequest.getCandidateTerm();
-        final long current = persistence.getCurrentTerm();
-//        if (term > current && currentTerm.compareAndSet(term, current)) {
-//            // convert to follower
-//            currentRole.set(Role.Follower);
-//
-//        }
+        syncCurrentTerm(voteRequest.getCandidateTerm());
 
         return null;
     }
@@ -70,6 +76,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     @Override
     public AppendEntriesResponse onAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
         logger.info("append entries request {}", appendEntriesRequest);
+        syncCurrentTerm(appendEntriesRequest.getLeaderTerm());
         heartbeats.addLast(System.currentTimeMillis());
 
         AppendEntriesResponse.Builder builder = AppendEntriesResponse.newBuilder();
@@ -107,7 +114,19 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     private void applyCommits() {
         while (lastApplied.get() < commitIndex.get()) {
             long index = lastApplied.getAndIncrement();
+            LogEntry logEntry = persistence.getLogEntry(index);
+            String command = logEntry.getCommand();
+            applyCommand(command);
         }
+    }
+
+    /**
+     * apply command to the state machine
+     *
+     * @param command command
+     */
+    private void applyCommand(String command) {
+        logger.info("applying command '{}'", command);
     }
 
     /**
@@ -163,6 +182,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     @Override
     protected void run() throws Exception {
         while (isRunning()) {
+
             // apply commits if any pending ones are present
             applyCommits();
 

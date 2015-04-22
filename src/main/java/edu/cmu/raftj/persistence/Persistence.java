@@ -14,14 +14,16 @@ public interface Persistence extends Closeable {
 
     long incrementAndGetCurrentTerm();
 
+    boolean largerThanAndSetCurrentTerm(long term);
+
     @Nullable
     String getVotedFor();
 
     boolean compareAndSetVoteFor(@Nullable String old, @Nullable String vote);
 
-    LogEntry getLogEntry(int index);
+    LogEntry getLogEntry(long index);
 
     void appendLogEntry(LogEntry logEntry);
 
-    int getLogEntrySize();
+    long getLogEntriesSize();
 }
