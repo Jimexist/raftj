@@ -6,7 +6,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.ServiceManager;
-import edu.cmu.raftj.persistence.DiskPersistence;
+import edu.cmu.raftj.persistence.FilePersistence;
 import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.DefaultCommunicator;
 import edu.cmu.raftj.server.DefaultServer;
@@ -66,7 +66,7 @@ public final class Runner {
         logger.info("server lists {}, this server is {}", servers, hostAndPort);
 
         final DefaultCommunicator communicator = new DefaultCommunicator(hostAndPort, Sets.difference(servers, ImmutableSet.of(hostAndPort)));
-        final Persistence persistence = new DiskPersistence(path);
+        final Persistence persistence = new FilePersistence(path);
         final DefaultServer server = new DefaultServer(getElectionTimeout(), communicator, persistence);
         communicator.setRequestListener(server);
 

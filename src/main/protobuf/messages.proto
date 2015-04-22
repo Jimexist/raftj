@@ -5,7 +5,7 @@ message LogEntry {
     required string command = 2;
 }
 
-message DiskPersistenceEntry {
+message PersistenceEntry {
     oneof payload {
         LogEntry logEntry = 1;
         int64 currentTerm = 2;
