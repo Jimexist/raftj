@@ -292,6 +292,6 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
     @Override
     protected Scheduler scheduler() {
-        return Scheduler.newFixedDelaySchedule(electionTimeout, electionTimeout, TimeUnit.MILLISECONDS);
+        return Scheduler.newFixedDelaySchedule(electionTimeout / 2, electionTimeout / 2, TimeUnit.MILLISECONDS);
     }
 }
