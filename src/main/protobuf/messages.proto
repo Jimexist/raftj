@@ -1,8 +1,9 @@
 package edu.cmu.raftj.rpc;
 
 message LogEntry {
-    required int64 term = 1;
-    required string command = 2;
+    required int64 logIndex = 1;
+    required int64 term = 2;
+    required string command = 3;
 }
 
 message PersistenceEntry {

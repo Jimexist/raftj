@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Objects;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 /**
  * file based persistence, append only
@@ -56,6 +57,7 @@ public class FilePersistence implements Persistence {
                 switch (entry.getPayloadCase()) {
                     case LOGENTRY:
                         entries.add(entry.getLogEntry());
+                        checkState(entries.get(entries.size() - 1).getLogIndex() == entries.size());
                         break;
                     case CURRENTTERM:
                         currentTerm = entry.getCurrentTerm();
@@ -126,6 +128,15 @@ public class FilePersistence implements Persistence {
     public synchronized LogEntry getLogEntry(long index) {
         // we have to be practical
         return entries.get(Ints.checkedCast(index));
+    }
+
+    @Nullable
+    @Override
+    public synchronized LogEntry getLastLogEntry() {
+        if (entries.isEmpty()) {
+            return null;
+        }
+        return entries.get(entries.size() - 1);
     }
 
     @Override

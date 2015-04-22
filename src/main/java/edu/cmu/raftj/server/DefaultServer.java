@@ -12,9 +12,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -23,9 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static edu.cmu.raftj.server.Server.Role.Candidate;
-import static edu.cmu.raftj.server.Server.Role.Follower;
-import static edu.cmu.raftj.server.Server.Role.Leader;
+import static edu.cmu.raftj.server.Server.Role.*;
 
 /**
  * Default implementation for {@link Server}
@@ -95,12 +93,21 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
      * leader sends heartbeat
      */
     private void sendHeartbeat() {
-        AppendEntriesRequest request = AppendEntriesRequest.newBuilder()
+        AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder()
                 .setLeaderTerm(persistence.getCurrentTerm())
                 .setLeaderId(getServerId())
-                .setLeaderCommitIndex(commitIndex.get())
-                .build();
-        communicator.sendAppendEntriesRequest(request);
+                .setLeaderCommitIndex(commitIndex.get());
+
+        LogEntry lastLogEntry = persistence.getLastLogEntry();
+        if (lastLogEntry == null) {
+            builder.setPrevLogIndex(0L);
+            builder.setPrevLogTerm(0L);
+        } else {
+            builder.setPrevLogIndex(lastLogEntry.getLogIndex());
+            builder.setPrevLogTerm(lastLogEntry.getTerm());
+        }
+
+        communicator.sendAppendEntriesRequest(builder.build());
     }
 
     private void reinitializeLeaderStates() {
@@ -132,36 +139,49 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     /**
      * followers check election timeout, block for up to election timeout millis if not available
      */
-    private void checkElectionTimeout() {
-        try {
-            while (true) {
-                long hb = heartbeats.poll(electionTimeout, TimeUnit.MILLISECONDS);
-                if (hb + electionTimeout > System.currentTimeMillis()) {
-                    break;
-                }
+    private void checkElectionTimeout() throws InterruptedException {
+        while (true) {
+            final Long hb = heartbeats.poll(electionTimeout, TimeUnit.MILLISECONDS);
+            if (hb == null) {
+                logger.info("election timeout, convert to candidate");
+                currentRole.set(Candidate);
+                startElection();
+            } else if (hb + electionTimeout > System.currentTimeMillis()) {
+                return;
             }
-        } catch (InterruptedException e) {
-            logger.info("election timeout, convert to candidate");
-            currentRole.set(Candidate);
-            startElection();
         }
     }
+
 
     private void startElection() {
         logger.info("try to start election, current term {}", persistence.getCurrentTerm());
         while (currentRole.get() == Candidate) {
-            long newTerm = persistence.incrementAndGetCurrentTerm();
-            logger.info("incremented to new term {}", newTerm);
-            VoteRequest voteRequest = VoteRequest.newBuilder()
+            final long newTerm = persistence.incrementAndGetCurrentTerm();
+            logger.info("increasing to new term {}", newTerm);
+
+            VoteRequest.Builder builder = VoteRequest.newBuilder()
                     .setCandidateId(getServerId())
-                    .setCandidateTerm(newTerm)
-                            // todo
-                    .build();
+                    .setCandidateTerm(newTerm);
+
+            LogEntry lastLogEntry = persistence.getLastLogEntry();
+            if (lastLogEntry == null) {
+                builder.setLastLogIndex(0L);
+                builder.setLastLogTerm(0L);
+            } else {
+                builder.setLastLogIndex(lastLogEntry.getLogIndex());
+                builder.setLastLogTerm(lastLogEntry.getTerm());
+            }
 
             try {
-                Collection<VoteResponse> responses =
-                        communicator.sendVoteRequest(voteRequest).get(electionTimeout, TimeUnit.MILLISECONDS);
-                long numberOfAyes = responses.stream().filter((vote) -> vote != null && vote.getVoteGranted()).count();
+                List<VoteResponse> responses =
+                        communicator.sendVoteRequest(builder.build()).get(electionTimeout, TimeUnit.MILLISECONDS);
+                // update term if possible
+                responses.stream().filter(Objects::nonNull)
+                        .forEach((response) -> syncCurrentTerm(response.getTerm()));
+                final long numberOfAyes = responses.stream()
+                        .filter(Objects::nonNull)
+                        .filter(VoteResponse::getVoteGranted)
+                        .count();
                 if (2 * (numberOfAyes + 1) > responses.size()) {
                     if (currentRole.compareAndSet(Candidate, Leader)) {
                         logger.info("won election, current term {}", persistence.getCurrentTerm());
@@ -210,11 +230,6 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     @Override
     public long getCurrentTerm() {
         return persistence.getCurrentTerm();
-    }
-
-    @Override
-    public long getElectionTimeout() {
-        return electionTimeout;
     }
 
     @Override

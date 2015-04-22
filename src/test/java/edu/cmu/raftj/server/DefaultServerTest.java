@@ -1,11 +1,15 @@
 package edu.cmu.raftj.server;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.net.HostAndPort;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.Service;
 import com.google.common.util.concurrent.ServiceManager;
 import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.Communicator;
 import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
 import edu.cmu.raftj.rpc.Messages.VoteRequest;
+import edu.cmu.raftj.rpc.Messages.VoteResponse;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -13,7 +17,10 @@ import org.mockito.Mock;
 
 import java.util.concurrent.TimeUnit;
 
+import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static org.junit.Assert.assertEquals;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.when;
 import static org.mockito.MockitoAnnotations.initMocks;
 
 
@@ -32,13 +39,25 @@ public class DefaultServerTest {
     @Before
     public void setUp() throws Exception {
         initMocks(this);
+
+        when(communicator.getServerHostAndPort()).thenReturn(HostAndPort.fromParts("localhost", 7654));
+
+        VoteResponse response = VoteResponse.newBuilder().setTerm(1L).setVoteGranted(true).build();
+        when(communicator.sendVoteRequest(any(VoteRequest.class))).thenReturn(
+                immediateFuture(ImmutableList.of(response)));
+
         defaultServer = new DefaultServer(42L, communicator, persistence);
         serviceManager = new ServiceManager(ImmutableList.of(defaultServer));
+        serviceManager.addListener(new ServiceManager.Listener() {
+            @Override
+            public void failure(Service service) {
+                System.exit(-1);
+            }
+        }, MoreExecutors.directExecutor());
         serviceManager.startAsync().awaitHealthy();
 
         assertEquals(Server.Role.Follower, defaultServer.getCurrentRole());
         assertEquals(0, defaultServer.getCurrentTerm());
-        assertEquals(42L, defaultServer.getElectionTimeout());
     }
 
     @After

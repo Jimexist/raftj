@@ -16,7 +16,6 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
@@ -55,7 +54,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     }
 
 
-    private <T extends GeneratedMessage> ListenableFuture<? extends Collection<T>> boardCast(Request request, Function<InputStream, T> builder) {
+    private <T extends GeneratedMessage> ListenableFuture<List<T>> boardCast(Request request, Function<InputStream, T> builder) {
         final List<ListenableFuture<T>> list = Lists.newArrayList();
         for (HostAndPort hostAndPort : audience) {
             final SettableFuture<T> settableFuture = SettableFuture.create();
@@ -77,7 +76,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     }
 
     @Override
-    public ListenableFuture<? extends Collection<VoteResponse>> sendVoteRequest(VoteRequest voteRequest) {
+    public ListenableFuture<List<VoteResponse>> sendVoteRequest(VoteRequest voteRequest) {
         return boardCast(Request.newBuilder().setVoteRequest(voteRequest).build(), (is) -> {
             try {
                 return VoteResponse.parseFrom(is);
@@ -88,7 +87,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     }
 
     @Override
-    public ListenableFuture<? extends Collection<AppendEntriesResponse>> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
+    public ListenableFuture<List<AppendEntriesResponse>> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
         return boardCast(Request.newBuilder().setAppendEntriesRequest(appendEntriesRequest).build(), (is) -> {
             try {
                 return AppendEntriesResponse.parseFrom(is);

@@ -8,7 +8,7 @@ import edu.cmu.raftj.rpc.Messages.AppendEntriesResponse;
 import edu.cmu.raftj.rpc.Messages.VoteRequest;
 import edu.cmu.raftj.rpc.Messages.VoteResponse;
 
-import java.util.Collection;
+import java.util.List;
 
 /**
  * Communication module for {@link edu.cmu.raftj.server.Server}
@@ -21,7 +21,7 @@ public interface Communicator {
      * @param voteRequest vote request
      * @return yes or no
      */
-    ListenableFuture<? extends Collection<VoteResponse>> sendVoteRequest(VoteRequest voteRequest);
+    ListenableFuture<List<VoteResponse>> sendVoteRequest(VoteRequest voteRequest);
 
     /**
      * invoked by leader to replicate log entries and heartbeat
@@ -29,7 +29,7 @@ public interface Communicator {
      * @param appendEntriesRequest append request
      * @return yes or no
      */
-    ListenableFuture<? extends Collection<AppendEntriesResponse>> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest);
+    ListenableFuture<List<AppendEntriesResponse>> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest);
 
     void setRequestListener(RequestListener requestListener);
 
