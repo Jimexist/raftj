@@ -204,8 +204,9 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
                 logger.info("[{}] election timeout, convert to candidate", currentRole.get());
                 currentRole.set(Candidate);
                 startElection();
+                break;
             } else if (hb + electionTimeout > System.currentTimeMillis()) {
-                return;
+                break;
             }
         }
     }
