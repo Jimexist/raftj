@@ -26,7 +26,7 @@ public interface Persistence extends Closeable {
     @Nullable
     LogEntry getLastLogEntry();
 
-    void appendLogEntry(LogEntry logEntry);
+    void applyLogEntry(LogEntry logEntry);
 
     long getLogEntriesSize();
 }

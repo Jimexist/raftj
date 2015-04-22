@@ -4,6 +4,9 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.Communicator;
 import edu.cmu.raftj.rpc.Messages.*;
@@ -58,41 +61,82 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
      */
     private void syncCurrentTerm(long term) {
         if (persistence.largerThanAndSetCurrentTerm(term)) {
-            logger.info("bump current term to be {}", term);
+            logger.info("[{}] bump current term to be {}", currentRole.get(), term);
             currentRole.set(Follower);
         }
     }
 
     @Override
     public VoteResponse onVoteRequest(VoteRequest voteRequest) {
-        logger.info("vote request {}", voteRequest);
+        logger.info("[{}] got vote request {}", currentRole.get(), voteRequest);
         syncCurrentTerm(voteRequest.getCandidateTerm());
 
-        return null;
+        VoteResponse.Builder builder = VoteResponse.newBuilder().setVoteGranted(false);
+
+        final String candidateId = checkNotNull(voteRequest.getCandidateId(), "candidate ID");
+        final boolean upToDate = voteRequest.getLastLogIndex() >= (persistence.getLogEntriesSize() + 1);
+
+        if (voteRequest.getCandidateTerm() >= getCurrentTerm() && upToDate) {
+            if (Objects.equals(candidateId, persistence.getVotedFor()) ||
+                    persistence.compareAndSetVoteFor(null, candidateId)) {
+                logger.info("[{}] voted for {}", currentRole.get(), candidateId);
+                builder.setVoteGranted(true);
+            }
+        }
+
+        return builder.build();
+    }
+
+    private void updateCommitIndex(AppendEntriesRequest request) {
+        commitIndex.updateAndGet(value -> {
+            final long leaderCommitIndex = request.getLeaderCommitIndex();
+            if (leaderCommitIndex > value) {
+                final List<LogEntry> entryList = request.getLogEntriesList();
+                if (!entryList.isEmpty()) {
+                    return Math.min(leaderCommitIndex, entryList.get(entryList.size() - 1).getLogIndex());
+                }
+                return leaderCommitIndex;
+            } else {
+                return value;
+            }
+        });
     }
 
     @Override
-    public AppendEntriesResponse onAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
-        logger.info("append entries request {}", appendEntriesRequest);
-        syncCurrentTerm(appendEntriesRequest.getLeaderTerm());
+    public AppendEntriesResponse onAppendEntriesRequest(AppendEntriesRequest request) {
+        logger.info("[{}] append entries request {}", currentRole.get(), request);
+        syncCurrentTerm(request.getLeaderTerm());
         heartbeats.addLast(System.currentTimeMillis());
 
-        AppendEntriesResponse.Builder builder = AppendEntriesResponse.newBuilder();
-
-        if (appendEntriesRequest.getLeaderTerm() < persistence.getCurrentTerm()) {
-            builder.setSuccess(false);
-            return builder.setTerm(persistence.getCurrentTerm()).build();
+        final AppendEntriesResponse.Builder builder = AppendEntriesResponse.newBuilder().setSuccess(false);
+        // the term is new
+        if (request.getLeaderTerm() >= getCurrentTerm()) {
+            final LogEntry lastEntry = persistence.getLastLogEntry();
+            if (lastEntry != null && lastEntry.getLogIndex() >= request.getPrevLogIndex()) {
+                final LogEntry entry = persistence.getLogEntry(request.getPrevLogIndex());
+                if (entry.getTerm() == request.getPrevLogTerm()) {
+                    request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
+                    updateCommitIndex(request);
+                    builder.setSuccess(true);
+                } else {
+                    logger.warn("[{}] prev entry mismatch, local last term {}, remote prev term {}",
+                            currentRole.get(), entry.getTerm(), request.getPrevLogTerm());
+                }
+            } else {
+                logger.warn("[{}] log entries are too new, remote prev index {}",
+                        currentRole.get(),
+                        request.getPrevLogIndex());
+            }
         }
-
-        List<LogEntry> entryList = appendEntriesRequest.getLogEntriesList();
-
-        return null;
+        return builder.setTerm(persistence.getCurrentTerm()).build();
     }
 
     /**
      * leader sends heartbeat
      */
     private void sendHeartbeat() {
+        logger.info("[{}] sending heartbeat", currentRole.get());
+
         AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder()
                 .setLeaderTerm(persistence.getCurrentTerm())
                 .setLeaderId(getServerId())
@@ -107,7 +151,21 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
             builder.setPrevLogTerm(lastLogEntry.getTerm());
         }
 
-        communicator.sendAppendEntriesRequest(builder.build());
+        ListenableFuture<List<AppendEntriesResponse>> responses =
+                communicator.sendAppendEntriesRequest(builder.build());
+        Futures.addCallback(responses, new FutureCallback<List<AppendEntriesResponse>>() {
+            @Override
+            public void onSuccess(List<AppendEntriesResponse> result) {
+                // update terms
+                result.stream().filter(Objects::nonNull).forEach((res) -> syncCurrentTerm(res.getTerm()));
+
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                logger.error("[{}] error in getting response from heartbeats: {}", currentRole.get(), t);
+            }
+        });
     }
 
     private void reinitializeLeaderStates() {
@@ -143,7 +201,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
         while (true) {
             final Long hb = heartbeats.poll(electionTimeout, TimeUnit.MILLISECONDS);
             if (hb == null) {
-                logger.info("election timeout, convert to candidate");
+                logger.info("[{}] election timeout, convert to candidate", currentRole.get());
                 currentRole.set(Candidate);
                 startElection();
             } else if (hb + electionTimeout > System.currentTimeMillis()) {
@@ -154,10 +212,10 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
 
 
     private void startElection() {
-        logger.info("try to start election, current term {}", persistence.getCurrentTerm());
+        logger.info("[{}] try to start election, current term {}", currentRole.get(), persistence.getCurrentTerm());
         while (currentRole.get() == Candidate) {
             final long newTerm = persistence.incrementAndGetCurrentTerm();
-            logger.info("increasing to new term {}", newTerm);
+            logger.info("[{}] increasing to new term {}", currentRole.get(), newTerm);
 
             VoteRequest.Builder builder = VoteRequest.newBuilder()
                     .setCandidateId(getServerId())
@@ -184,7 +242,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
                         .count();
                 if (2 * (numberOfAyes + 1) > responses.size()) {
                     if (currentRole.compareAndSet(Candidate, Leader)) {
-                        logger.info("won election, current term {}", persistence.getCurrentTerm());
+                        logger.info("[{}] won election, current term {}", currentRole.get(), persistence.getCurrentTerm());
                         sendHeartbeat();
                         reinitializeLeaderStates();
                         return;
@@ -193,10 +251,10 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
             } catch (InterruptedException | ExecutionException e) {
                 throw Throwables.propagate(e);
             } catch (TimeoutException e) {
-                logger.info("election timeout, restart election");
+                logger.info("[{}] election timeout, restart election", currentRole.get());
             }
         }
-        logger.info("lose election, current term {}", persistence.getCurrentTerm());
+        logger.info("[{}] lose election, current term {}", currentRole.get(), persistence.getCurrentTerm());
     }
 
     @Override

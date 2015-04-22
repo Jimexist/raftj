@@ -53,14 +53,14 @@ public class FilePersistenceTest {
         try (FilePersistence filePersistence = new FilePersistence(path)) {
             assertEquals(0, filePersistence.getLogEntriesSize());
             Messages.LogEntry logEntry = Messages.LogEntry.newBuilder().setLogIndex(1L).setTerm(10L).setCommand("x = 1").build();
-            filePersistence.appendLogEntry(logEntry);
+            filePersistence.applyLogEntry(logEntry);
             assertEquals(1, filePersistence.getLogEntriesSize());
         }
 
         try (FilePersistence filePersistence = new FilePersistence(path)) {
             assertEquals(1, filePersistence.getLogEntriesSize());
             Messages.LogEntry logEntry = Messages.LogEntry.newBuilder().setLogIndex(1L).setTerm(10L).setCommand("x = 1").build();
-            assertEquals(logEntry, filePersistence.getLogEntry(0));
+            assertEquals(logEntry, filePersistence.getLogEntry(1));
         }
 
     }

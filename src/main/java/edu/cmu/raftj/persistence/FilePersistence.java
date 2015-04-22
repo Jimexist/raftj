@@ -15,8 +15,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Preconditions.*;
 
 /**
  * file based persistence, append only
@@ -81,13 +80,13 @@ public class FilePersistence implements Persistence {
     @Override
     public synchronized long incrementAndGetCurrentTerm() {
         try {
-            final long newTerm = currentTerm + 1;
+            final long newTerm = currentTerm + 1L;
             builder.setCurrentTerm(newTerm).build().writeTo(outputStream);
             currentTerm = newTerm;
+            return currentTerm;
         } catch (IOException e) {
             throw Throwables.propagate(e);
         }
-        return currentTerm;
     }
 
     @Override
@@ -126,8 +125,9 @@ public class FilePersistence implements Persistence {
 
     @Override
     public synchronized LogEntry getLogEntry(long index) {
+        checkArgument(index > 0, "log index must be positive: %s", index);
         // we have to be practical
-        return entries.get(Ints.checkedCast(index));
+        return entries.get(Ints.checkedCast(index - 1));
     }
 
     @Nullable
@@ -145,10 +145,28 @@ public class FilePersistence implements Persistence {
     }
 
     @Override
-    public synchronized void appendLogEntry(LogEntry logEntry) {
+    public synchronized void applyLogEntry(LogEntry logEntry) {
         try {
-            builder.setLogEntry(checkNotNull(logEntry, "log entry")).build().writeTo(outputStream);
-            entries.add(logEntry);
+            final int index = Ints.checkedCast(logEntry.getLogIndex()) - 1;
+            if (index == entries.size()) {
+                builder.setLogEntry(logEntry).build().writeTo(outputStream);
+                entries.add(logEntry);
+            } else if (index < entries.size()) {
+                final LogEntry current = entries.get(index);
+                if (current.getTerm() == logEntry.getTerm()) {
+                    checkArgument(Objects.equals(current.getCommand(), logEntry.getCommand()),
+                            "command mismatch, current %s, param %s", current.getCommand(), logEntry.getCommand());
+                } else {
+                    logger.info("entry mismatch at {}, local term {}, remote term {}, rewrite...",
+                            index, current.getTerm(), logEntry.getTerm());
+                    entries.subList(index, entries.size()).clear();
+                    entries.add(logEntry);
+                    checkState(entries.size() == index);
+                }
+            } else {
+                checkPositionIndex(index, entries.size(), "log entry too new");
+                assert false;
+            }
         } catch (IOException e) {
             throw Throwables.propagate(e);
         }
