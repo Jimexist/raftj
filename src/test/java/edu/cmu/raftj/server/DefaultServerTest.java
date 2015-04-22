@@ -5,6 +5,7 @@ import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.Service;
 import com.google.common.util.concurrent.ServiceManager;
+import com.google.common.util.concurrent.SettableFuture;
 import edu.cmu.raftj.persistence.FilePersistence;
 import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.Communicator;
@@ -18,12 +19,13 @@ import org.junit.Test;
 import org.mockito.Mock;
 
 import java.nio.file.Files;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.util.concurrent.Futures.immediateFuture;
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 import static org.mockito.MockitoAnnotations.initMocks;
 
 
@@ -80,13 +82,46 @@ public class DefaultServerTest {
 
     @Test
     public void testOnVoteRequest() throws Exception {
-        VoteRequest request = VoteRequest.newBuilder()
+        VoteRequest.Builder builder = VoteRequest.newBuilder()
                 .setCandidateId("candid-id")
                 .setCandidateTerm(1L)
                 .setLastLogIndex(100L)
-                .setLastLogTerm(1L)
-                .build();
-        defaultServer.onVoteRequest(request);
+                .setLastLogTerm(1L);
+
+        assertTrue(defaultServer.onVoteRequest(builder.build()).getVoteGranted());
+        assertTrue(defaultServer.onVoteRequest(builder.build()).getVoteGranted());
+        assertFalse(defaultServer.onVoteRequest(builder.setCandidateId("lol").build()).getVoteGranted());
+
+    }
+
+    @Test
+    public void testVoteRetry() throws Exception {
+        SettableFuture<List<VoteResponse>> result = SettableFuture.create();
+        when(communicator.sendVoteRequest(any(VoteRequest.class))).thenAnswer(invocation -> result);
+        verify(communicator, timeout(1000L).atLeast(3)).sendVoteRequest(any(VoteRequest.class));
+        assertEquals(Server.Role.Candidate, defaultServer.getCurrentRole());
+        result.set(ImmutableList.of(VoteResponse.newBuilder().setTerm(1L).setVoteGranted(true).build()));
+        verify(communicator, never()).sendAppendEntriesRequest(any(AppendEntriesRequest.class));
+        while (defaultServer.getCurrentRole() == Server.Role.Candidate) {
+            // loop
+        }
+        assertEquals(Server.Role.Leader, defaultServer.getCurrentRole());
+        verify(communicator, timeout(1000L).atLeast(1)).sendAppendEntriesRequest(any(AppendEntriesRequest.class));
+    }
+
+
+    @Test
+    public void testVoteRetryWithHigherTerm() throws Exception {
+        SettableFuture<List<VoteResponse>> result = SettableFuture.create();
+        when(communicator.sendVoteRequest(any(VoteRequest.class))).thenAnswer(invocation -> result);
+        verify(communicator, timeout(1000L).atLeast(3)).sendVoteRequest(any(VoteRequest.class));
+        assertEquals(Server.Role.Candidate, defaultServer.getCurrentRole());
+        result.set(ImmutableList.of(VoteResponse.newBuilder().setTerm(10000L).setVoteGranted(true).build()));
+        verify(communicator, never()).sendAppendEntriesRequest(any(AppendEntriesRequest.class));
+        while (defaultServer.getCurrentRole() == Server.Role.Candidate) {
+            // loop
+        }
+        assertEquals(Server.Role.Follower, defaultServer.getCurrentRole());
     }
 
     @Test

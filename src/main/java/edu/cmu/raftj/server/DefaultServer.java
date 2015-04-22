@@ -3,10 +3,7 @@ package edu.cmu.raftj.server;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-import com.google.common.util.concurrent.AbstractExecutionThreadService;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.*;
 import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.Communicator;
 import edu.cmu.raftj.rpc.Messages.*;
@@ -31,20 +28,17 @@ import static edu.cmu.raftj.server.Server.Role.*;
 /**
  * Default implementation for {@link Server}
  */
-public class DefaultServer extends AbstractExecutionThreadService implements Server, RequestListener {
+public class DefaultServer extends AbstractScheduledService implements Server, RequestListener {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultServer.class);
 
     private final AtomicLong commitIndex = new AtomicLong(0);
     private final AtomicLong lastApplied = new AtomicLong(0);
-
     private final BlockingDeque<Long> heartbeats = Queues.newLinkedBlockingDeque();
-
     private final AtomicReference<Role> currentRole = new AtomicReference<>(Follower);
     private final long electionTimeout;
     private final Communicator communicator;
     private final Persistence persistence;
-
     private final Map<String, Long> nextIndices = Maps.newConcurrentMap();
     private final Map<String, Long> matchIndices = Maps.newConcurrentMap();
 
@@ -71,20 +65,23 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
         logger.info("[{}] got vote request {}", currentRole.get(), voteRequest);
         syncCurrentTerm(voteRequest.getCandidateTerm());
 
-        VoteResponse.Builder builder = VoteResponse.newBuilder().setVoteGranted(false);
-
+        final VoteResponse.Builder builder = VoteResponse.newBuilder().setVoteGranted(false);
         final String candidateId = checkNotNull(voteRequest.getCandidateId(), "candidate ID");
         final boolean upToDate = voteRequest.getLastLogIndex() >= (persistence.getLogEntriesSize() + 1);
-
         if (voteRequest.getCandidateTerm() >= getCurrentTerm() && upToDate) {
             if (Objects.equals(candidateId, persistence.getVotedFor()) ||
                     persistence.compareAndSetVoteFor(null, candidateId)) {
-                logger.info("[{}] voted for {}", currentRole.get(), candidateId);
+                logger.info("[{}] voted yes for {}", currentRole.get(), candidateId);
                 builder.setVoteGranted(true);
+            } else {
+                logger.info("[{}] voted no for {} because already voted for {}",
+                        currentRole.get(), candidateId, persistence.getVotedFor());
             }
+        } else {
+            logger.info("[{}] voted no for {} because the request was too old",
+                    currentRole.get(), candidateId);
         }
-
-        return builder.build();
+        return builder.setTerm(getCurrentTerm()).build();
     }
 
     private void updateCommitIndex(AppendEntriesRequest request) {
@@ -128,7 +125,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
                         request.getPrevLogIndex());
             }
         }
-        return builder.setTerm(persistence.getCurrentTerm()).build();
+        return builder.setTerm(getCurrentTerm()).build();
     }
 
     /**
@@ -138,7 +135,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
         logger.info("[{}] sending heartbeat", currentRole.get());
 
         AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder()
-                .setLeaderTerm(persistence.getCurrentTerm())
+                .setLeaderTerm(getCurrentTerm())
                 .setLeaderId(getServerId())
                 .setLeaderCommitIndex(commitIndex.get());
 
@@ -158,7 +155,6 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
             public void onSuccess(List<AppendEntriesResponse> result) {
                 // update terms
                 result.stream().filter(Objects::nonNull).forEach((res) -> syncCurrentTerm(res.getTerm()));
-
             }
 
             @Override
@@ -218,11 +214,11 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
             final long newTerm = persistence.incrementAndGetCurrentTerm();
             logger.info("[{}] increasing to new term {}", currentRole.get(), newTerm);
 
-            VoteRequest.Builder builder = VoteRequest.newBuilder()
+            final VoteRequest.Builder builder = VoteRequest.newBuilder()
                     .setCandidateId(getServerId())
                     .setCandidateTerm(newTerm);
 
-            LogEntry lastLogEntry = persistence.getLastLogEntry();
+            final LogEntry lastLogEntry = persistence.getLastLogEntry();
             if (lastLogEntry == null) {
                 builder.setLastLogIndex(0L);
                 builder.setLastLogTerm(0L);
@@ -241,6 +237,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
                         .filter(Objects::nonNull)
                         .filter(VoteResponse::getVoteGranted)
                         .count();
+                logger.info("[{}] number of ayes {} out of {}", getCurrentRole(), numberOfAyes, responses.size());
                 if (2 * (numberOfAyes + 1) > responses.size()) {
                     if (currentRole.compareAndSet(Candidate, Leader)) {
                         logger.info("[{}] won election, current term {}", currentRole.get(), persistence.getCurrentTerm());
@@ -259,29 +256,6 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     }
 
     @Override
-    protected void run() throws Exception {
-        while (isRunning()) {
-
-            // apply commits if any pending ones are present
-            applyCommits();
-
-            Role role = currentRole.get();
-            switch (role) {
-                case Follower:
-                    checkElectionTimeout();
-                    break;
-                case Leader:
-                    sendHeartbeat();
-                    break;
-                case Candidate:
-                    break;
-                default:
-                    throw new IllegalStateException("invalid role: " + role);
-            }
-        }
-    }
-
-    @Override
     public Role getCurrentRole() {
         return currentRole.get();
     }
@@ -294,5 +268,30 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     @Override
     public String getServerId() {
         return communicator.getServerHostAndPort().toString();
+    }
+
+    @Override
+    protected void runOneIteration() throws Exception {
+        // apply commits if any pending ones are present
+        applyCommits();
+
+        Role role = currentRole.get();
+        switch (role) {
+            case Follower:
+                checkElectionTimeout();
+                break;
+            case Leader:
+                sendHeartbeat();
+                break;
+            case Candidate:
+                break;
+            default:
+                throw new IllegalStateException("invalid role: " + role);
+        }
+    }
+
+    @Override
+    protected Scheduler scheduler() {
+        return Scheduler.newFixedDelaySchedule(electionTimeout, electionTimeout, TimeUnit.MILLISECONDS);
     }
 }
