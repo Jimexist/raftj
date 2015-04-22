@@ -5,6 +5,14 @@ message LogEntry {
     required string command = 2;
 }
 
+message DiskPersistenceEntry {
+    oneof payload {
+        LogEntry logEntry = 1;
+        int64 currentTerm = 2;
+        string votedFor = 3;
+    }
+}
+
 message VoteRequest {
     required int64 candidateTerm = 1;
     required string candidateId = 2;

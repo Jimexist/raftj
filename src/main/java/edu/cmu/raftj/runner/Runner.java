@@ -6,12 +6,16 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.ServiceManager;
+import edu.cmu.raftj.persistence.DiskPersistence;
+import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.DefaultCommunicator;
 import edu.cmu.raftj.server.DefaultServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -46,11 +50,9 @@ public final class Runner {
     }
 
     public static void main(String[] args) throws IOException {
-//        checkArgument(args.length == 1, "usage: <config_file_path>");
-//        String configFilePath = args[0];
-//        Path path = Paths.get(configFilePath);
-//        checkArgument(Files.exists(path) && Files.isRegularFile(path) && Files.isReadable(path),
-//                "%s is not a regular readable file", path);
+        checkArgument(args.length == 1, "usage: <config_file_path>");
+        String configFilePath = args[0];
+        Path path = Paths.get(configFilePath);
 
         final Set<HostAndPort> servers = getServersList();
         final HostAndPort hostAndPort = getServerHostAndPort();
@@ -64,7 +66,8 @@ public final class Runner {
         logger.info("server lists {}, this server is {}", servers, hostAndPort);
 
         final DefaultCommunicator communicator = new DefaultCommunicator(hostAndPort, Sets.difference(servers, ImmutableSet.of(hostAndPort)));
-        final DefaultServer server = new DefaultServer(getElectionTimeout(), communicator);
+        final Persistence persistence = new DiskPersistence(path);
+        final DefaultServer server = new DefaultServer(getElectionTimeout(), communicator, persistence);
         communicator.setRequestListener(server);
 
         final ServiceManager serviceManager = new ServiceManager(ImmutableList.of(server, communicator));

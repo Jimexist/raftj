@@ -2,7 +2,9 @@ package edu.cmu.raftj.server;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
+import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.Communicator;
 import edu.cmu.raftj.rpc.Messages.*;
 import edu.cmu.raftj.rpc.RequestListener;
@@ -13,13 +15,13 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static edu.cmu.raftj.server.Server.Role.Candidate;
 import static edu.cmu.raftj.server.Server.Role.Leader;
@@ -31,23 +33,23 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultServer.class);
 
-    private final AtomicLong currentTerm = new AtomicLong(0);
     private final AtomicLong commitIndex = new AtomicLong(0);
     private final AtomicLong lastApplied = new AtomicLong(0);
 
-    private final AtomicLong lastHeartbeat = new AtomicLong(System.currentTimeMillis());
+    private final BlockingDeque<Long> heartbeats = Queues.newLinkedBlockingDeque();
 
     private final AtomicReference<Role> currentRole = new AtomicReference<>(Role.Follower);
     private final long electionTimeout;
     private final Communicator communicator;
+    private final Persistence persistence;
 
     private final Map<String, Long> nextIndices = Maps.newConcurrentMap();
     private final Map<String, Long> matchIndices = Maps.newConcurrentMap();
 
-    public DefaultServer(long electionTimeout, Communicator communicator) throws IOException {
-        checkArgument(electionTimeout > 0, "election timeout must be positive");
+    public DefaultServer(long electionTimeout, Communicator communicator, Persistence persistence) throws IOException {
         this.electionTimeout = electionTimeout;
         this.communicator = checkNotNull(communicator, "communicator");
+        this.persistence = checkNotNull(persistence, "persistence");
     }
 
     @Override
@@ -55,12 +57,12 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
         logger.info("vote request {}", voteRequest);
 
         final long term = voteRequest.getCandidateTerm();
-        final long current = currentTerm.get();
-        if (term > current && currentTerm.compareAndSet(term, current)) {
-            // convert to follower
-            currentRole.set(Role.Follower);
-
-        }
+        final long current = persistence.getCurrentTerm();
+//        if (term > current && currentTerm.compareAndSet(term, current)) {
+//            // convert to follower
+//            currentRole.set(Role.Follower);
+//
+//        }
 
         return null;
     }
@@ -68,13 +70,13 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     @Override
     public AppendEntriesResponse onAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
         logger.info("append entries request {}", appendEntriesRequest);
-        lastHeartbeat.set(System.currentTimeMillis());
+        heartbeats.addLast(System.currentTimeMillis());
 
         AppendEntriesResponse.Builder builder = AppendEntriesResponse.newBuilder();
 
-        if (appendEntriesRequest.getLeaderTerm() < currentTerm.get()) {
+        if (appendEntriesRequest.getLeaderTerm() < persistence.getCurrentTerm()) {
             builder.setSuccess(false);
-            return builder.setTerm(currentTerm.get()).build();
+            return builder.setTerm(persistence.getCurrentTerm()).build();
         }
 
         List<LogEntry> entryList = appendEntriesRequest.getLogEntriesList();
@@ -87,7 +89,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
      */
     private void sendHeartbeat() {
         AppendEntriesRequest request = AppendEntriesRequest.newBuilder()
-                .setLeaderTerm(currentTerm.get())
+                .setLeaderTerm(persistence.getCurrentTerm())
                 .setLeaderId(getServerId())
                 .setLeaderCommitIndex(commitIndex.get())
                 .build();
@@ -99,7 +101,6 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
         matchIndices.clear();
     }
 
-
     /**
      * apply pending commits
      */
@@ -110,10 +111,17 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     }
 
     /**
-     * followers check election timeout
+     * followers check election timeout, block for up to election timeout millis if not available
      */
     private void checkElectionTimeout() {
-        if (lastHeartbeat.get() + electionTimeout < System.currentTimeMillis()) {
+        try {
+            while (true) {
+                long hb = heartbeats.poll(electionTimeout, TimeUnit.MILLISECONDS);
+                if (hb + electionTimeout > System.currentTimeMillis()) {
+                    break;
+                }
+            }
+        } catch (InterruptedException e) {
             logger.info("election timeout, convert to candidate");
             currentRole.set(Candidate);
             startElection();
@@ -121,9 +129,9 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
     }
 
     private void startElection() {
-        logger.info("try to start election, current term {}", currentTerm.get());
+        logger.info("try to start election, current term {}", persistence.getCurrentTerm());
         while (currentRole.get() == Candidate) {
-            long newTerm = currentTerm.incrementAndGet();
+            long newTerm = persistence.incrementAndGetCurrentTerm();
             logger.info("incremented to new term {}", newTerm);
             VoteRequest voteRequest = VoteRequest.newBuilder()
                     .setCandidateId(getServerId())
@@ -137,7 +145,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
                 long numberOfAyes = responses.stream().filter((vote) -> vote != null && vote.getVoteGranted()).count();
                 if (2 * (numberOfAyes + 1) > responses.size()) {
                     if (currentRole.compareAndSet(Candidate, Leader)) {
-                        logger.info("won election, current term {}", currentTerm.get());
+                        logger.info("won election, current term {}", persistence.getCurrentTerm());
                         sendHeartbeat();
                         reinitializeLeaderStates();
                         return;
@@ -149,7 +157,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
                 logger.info("election timeout, restart election");
             }
         }
-        logger.info("lose election, current term {}", currentTerm.get());
+        logger.info("lose election, current term {}", persistence.getCurrentTerm());
     }
 
     @Override
@@ -181,7 +189,7 @@ public class DefaultServer extends AbstractExecutionThreadService implements Ser
 
     @Override
     public long getCurrentTerm() {
-        return currentTerm.get();
+        return persistence.getCurrentTerm();
     }
 
     @Override

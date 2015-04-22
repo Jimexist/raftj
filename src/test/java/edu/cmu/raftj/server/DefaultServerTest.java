@@ -2,6 +2,7 @@ package edu.cmu.raftj.server;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ServiceManager;
+import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.Communicator;
 import edu.cmu.raftj.rpc.Messages.AppendEntriesRequest;
 import edu.cmu.raftj.rpc.Messages.VoteRequest;
@@ -23,13 +24,15 @@ public class DefaultServerTest {
 
     @Mock
     private Communicator communicator;
+    @Mock
+    private Persistence persistence;
     private DefaultServer defaultServer;
     private ServiceManager serviceManager;
 
     @Before
     public void setUp() throws Exception {
         initMocks(this);
-        defaultServer = new DefaultServer(42L, communicator);
+        defaultServer = new DefaultServer(42L, communicator, persistence);
         serviceManager = new ServiceManager(ImmutableList.of(defaultServer));
         serviceManager.startAsync().awaitHealthy();
 
