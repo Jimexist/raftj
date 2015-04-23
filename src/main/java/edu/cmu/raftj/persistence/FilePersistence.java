@@ -50,7 +50,7 @@ public class FilePersistence implements Persistence {
         try (InputStream inputStream = new FileInputStream(path.toFile())) {
             int count = 0;
             while (inputStream.available() > 0) {
-                PersistenceEntry entry = PersistenceEntry.parseFrom(inputStream);
+                PersistenceEntry entry = PersistenceEntry.parseDelimitedFrom(inputStream);
                 logger.debug("recovering entry #{}: {}", count, entry);
                 count++;
                 switch (entry.getPayloadCase()) {
@@ -81,7 +81,7 @@ public class FilePersistence implements Persistence {
     public synchronized long incrementAndGetCurrentTerm() {
         try {
             final long newTerm = currentTerm + 1L;
-            builder.setCurrentTerm(newTerm).build().writeTo(outputStream);
+            builder.setCurrentTerm(newTerm).build().writeDelimitedTo(outputStream);
             currentTerm = newTerm;
             // clear voted for as well
             votedFor = null;
@@ -95,7 +95,7 @@ public class FilePersistence implements Persistence {
     public synchronized boolean largerThanAndSetCurrentTerm(long term) {
         try {
             if (term > currentTerm) {
-                builder.setCurrentTerm(term).build().writeTo(outputStream);
+                builder.setCurrentTerm(term).build().writeDelimitedTo(outputStream);
                 currentTerm = term;
                 // clear voted for as well
                 votedFor = null;
@@ -117,7 +117,7 @@ public class FilePersistence implements Persistence {
     public synchronized boolean compareAndSetVoteFor(@Nullable String old, @Nullable String vote) {
         if (Objects.equals(old, votedFor)) {
             try {
-                builder.setVotedFor(vote).build().writeTo(outputStream);
+                builder.setVotedFor(vote).build().writeDelimitedTo(outputStream);
                 votedFor = vote;
                 return true;
             } catch (IOException e) {
@@ -153,7 +153,7 @@ public class FilePersistence implements Persistence {
         try {
             final int index = Ints.checkedCast(logEntry.getLogIndex()) - 1;
             if (index == entries.size()) {
-                builder.setLogEntry(logEntry).build().writeTo(outputStream);
+                builder.setLogEntry(logEntry).build().writeDelimitedTo(outputStream);
                 entries.add(logEntry);
             } else if (index < entries.size()) {
                 final LogEntry current = entries.get(index);

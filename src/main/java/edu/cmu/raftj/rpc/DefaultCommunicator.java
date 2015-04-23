@@ -22,7 +22,7 @@ import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.*;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
-import static java.util.concurrent.Executors.newWorkStealingPool;
+import static java.util.concurrent.Executors.newSingleThreadExecutor;
 
 /**
  * Default {@link Communicator} implementation that runs server on a dedicated thread, and boardCasts
@@ -34,7 +34,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
 
     private final HostAndPort hostAndPort;
     private final ImmutableSet<HostAndPort> audience;
-    private final ListeningExecutorService boardCastExecutor = listeningDecorator(newWorkStealingPool());
+    private final ListeningExecutorService broadcastExecutor;
     private final ServerSocket serverSocket;
     private RequestListener requestListener;
 
@@ -51,6 +51,17 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
         checkArgument(!audience.contains(hostAndPort),
                 "server audiences %s cannot contain this server %s",
                 audience, hostAndPort);
+        broadcastExecutor = listeningDecorator(newSingleThreadExecutor(
+                new ThreadFactoryBuilder()
+                        .setNameFormat(hostAndPort + " BroadcastThread")
+                        .setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+                            @Override
+                            public void uncaughtException(Thread t, Throwable e) {
+                                logger.error("exception thrown", e);
+                                System.exit(-1);
+                            }
+                        }).build()
+        ));
     }
 
 
@@ -58,11 +69,11 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
         final List<ListenableFuture<T>> list = Lists.newArrayList();
         for (HostAndPort hostAndPort : audience) {
             final SettableFuture<T> settableFuture = SettableFuture.create();
-            boardCastExecutor.execute(() -> {
+            broadcastExecutor.execute(() -> {
                 try (final Socket socket = new Socket(InetAddress.getByName(hostAndPort.getHostText()), hostAndPort.getPort());
                      final OutputStream outputStream = socket.getOutputStream();
                      final InputStream inputStream = socket.getInputStream()) {
-                    request.writeTo(outputStream);
+                    request.writeDelimitedTo(outputStream);
                     settableFuture.set(builder.apply(inputStream));
                 } catch (Exception e) {
                     logger.warn("error in sending vote request to {}, exception {}",
@@ -79,7 +90,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     public ListenableFuture<List<VoteResponse>> sendVoteRequest(VoteRequest voteRequest) {
         return boardCast(Request.newBuilder().setVoteRequest(voteRequest).build(), (is) -> {
             try {
-                return VoteResponse.parseFrom(is);
+                return VoteResponse.parseDelimitedFrom(is);
             } catch (IOException e) {
                 throw Throwables.propagate(e);
             }
@@ -90,7 +101,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     public ListenableFuture<List<AppendEntriesResponse>> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
         return boardCast(Request.newBuilder().setAppendEntriesRequest(appendEntriesRequest).build(), (is) -> {
             try {
-                return AppendEntriesResponse.parseFrom(is);
+                return AppendEntriesResponse.parseDelimitedFrom(is);
             } catch (IOException e) {
                 throw Throwables.propagate(e);
             }
@@ -126,16 +137,18 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
             try (final Socket client = serverSocket.accept();
                  final InputStream inputStream = client.getInputStream();
                  final OutputStream outputStream = client.getOutputStream()) {
-                final Request request = Request.parseFrom(inputStream);
+                final Request request = Request.parseDelimitedFrom(inputStream);
                 logger.info("handling {} request from {}:{}",
                         request.getPayloadCase(), client.getInetAddress(), client.getPort());
                 switch (request.getPayloadCase()) {
-                    case APPENDENTRIESREQUEST:
-                        requestListener.onAppendEntriesRequest(request.getAppendEntriesRequest()).writeTo(outputStream);
+                    case APPENDENTRIESREQUEST: {
+                        requestListener.onAppendEntriesRequest(request.getAppendEntriesRequest()).writeDelimitedTo(outputStream);
                         break;
-                    case VOTEREQUEST:
-                        requestListener.onVoteRequest(request.getVoteRequest()).writeTo(outputStream);
+                    }
+                    case VOTEREQUEST: {
+                        requestListener.onVoteRequest(request.getVoteRequest()).writeDelimitedTo(outputStream);
                         break;
+                    }
                     default:
                         throw new IllegalArgumentException("payload not set");
                 }
@@ -143,6 +156,11 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                 logger.warn("exception in accepting client", e);
             }
         }
+    }
+
+    @Override
+    protected String serviceName() {
+        return hostAndPort.toString() + " Communicator";
     }
 
     @Override

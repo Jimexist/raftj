@@ -23,8 +23,8 @@ def main():
         time.sleep(100)
     finally:
         for p in servers:
-            print p.terminate()
-            print p.wait()
+            p.terminate()
+            p.wait()
 
 if __name__ == "__main__":
     main()

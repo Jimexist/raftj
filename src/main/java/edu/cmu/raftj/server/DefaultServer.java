@@ -160,6 +160,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             public void onSuccess(List<AppendEntriesResponse> result) {
                 // update terms
                 result.stream().filter(Objects::nonNull).forEach((res) -> syncCurrentTerm(res.getTerm()));
+                logger.info("[{}] successfully got result of append entries {}", getCurrentRole(), result);
             }
 
             @Override
@@ -203,8 +204,8 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             final long electionTimeout = getElectionTimeout();
             final Long hb = heartbeats.poll(electionTimeout, TimeUnit.MILLISECONDS);
             if (hb == null) {
-                logger.info("[{}] election timeout, convert to candidate", getCurrentRole());
                 if (currentRole.compareAndSet(Follower, Candidate)) {
+                    logger.info("[{}] election timeout, converted to candidate", getCurrentRole());
                     startElection();
                 }
                 break;

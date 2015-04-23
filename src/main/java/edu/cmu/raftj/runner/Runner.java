@@ -79,10 +79,8 @@ public final class Runner {
         final DefaultServer server = new DefaultServer(communicator, persistence);
         communicator.setRequestListener(server);
 
-        final ServiceManager serviceManager = new ServiceManager(ImmutableList.of(server, communicator));
-
+        final ServiceManager serviceManager = new ServiceManager(ImmutableList.of(communicator, server));
         serviceManager.addListener(new ServiceManager.Listener() {
-
             @Override
             public void failure(Service service) {
                 logger.error("failure in service {}", service);
@@ -94,8 +92,6 @@ public final class Runner {
                 }
             }
         });
-
         serviceManager.startAsync().awaitHealthy();
-
     }
 }
