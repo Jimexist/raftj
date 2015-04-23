@@ -128,17 +128,19 @@ public class FilePersistence implements Persistence {
         return false;
     }
 
+    private int logIndexToListIndex(long logIndex) {
+        checkArgument(logIndex > 0, "log index must be positive: %s", logIndex);
+        return Ints.checkedCast(logIndex) - 1;
+    }
+
     @Override
     public synchronized LogEntry getLogEntry(long index) {
-        checkArgument(index > 0, "log index must be positive: %s", index);
-        // we have to be practical
-        return entries.get(Ints.checkedCast(index - 1));
+        return entries.get(logIndexToListIndex(index));
     }
 
     @Override
     public synchronized ImmutableList<LogEntry> getLogEntriesFrom(long fromIndex) {
-        checkArgument(fromIndex > 0, "log index must be positive: %s", fromIndex);
-        return ImmutableList.copyOf(entries.subList(Ints.checkedCast(fromIndex), entries.size()));
+        return ImmutableList.copyOf(entries.subList(logIndexToListIndex(fromIndex), entries.size()));
     }
 
     @Nullable
@@ -158,7 +160,7 @@ public class FilePersistence implements Persistence {
     @Override
     public synchronized void applyLogEntry(LogEntry logEntry) {
         try {
-            final int index = Ints.checkedCast(logEntry.getLogIndex()) - 1;
+            final int index = logIndexToListIndex(logEntry.getLogIndex());
             if (index == entries.size()) {
                 builder.setLogEntry(logEntry).build().writeDelimitedTo(outputStream);
                 entries.add(logEntry);

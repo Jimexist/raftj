@@ -30,6 +30,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.Iterables.getLast;
 import static com.google.common.collect.Maps.asMap;
 import static edu.cmu.raftj.server.Server.Role.*;
+import static java.util.Comparator.naturalOrder;
 
 /**
  * Default implementation for {@link Server}
@@ -186,8 +187,8 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             synchronized (nextIndices) {
                 nextIndex = nextIndices.get(nextAudience);
             }
-            final long lastIndex = persistence.getLastLogIndex();
-            if (nextIndex <= lastIndex) {
+            final long localLastLogEntryIndex = persistence.getLastLogIndex();
+            if (nextIndex <= localLastLogEntryIndex) {
                 try {
                     AppendEntriesResponse response =
                             communicator.sendAppendEntriesRequest(buildReplicationRequest(nextIndex), nextAudience).get();
@@ -201,12 +202,12 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                         nextFollower.addLast(nextAudience);
                     } else {
                         logger.info("[{}] successfully replicated logs [{}, {}) to follower {}",
-                                getCurrentRole(), nextIndex, lastIndex + 1, nextAudience);
+                                getCurrentRole(), nextIndex, localLastLogEntryIndex + 1, nextAudience);
                         synchronized (nextIndices) {
-                            nextIndices.put(nextAudience, lastIndex + 1);
+                            nextIndices.put(nextAudience, localLastLogEntryIndex + 1);
                         }
                         synchronized (matchIndices) {
-                            matchIndices.put(nextAudience, lastIndex + 1);
+                            matchIndices.put(nextAudience, localLastLogEntryIndex + 1);
                         }
                     }
                 } catch (InterruptedException | ExecutionException e) {
@@ -220,9 +221,9 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     private void updateCommitIndexAfterReplications() {
         final long min, max;
         synchronized (matchIndices) {
-            min = Math.max(stateMachine.getCommitIndex(),
-                    matchIndices.values().stream().min(Comparator.<Long>naturalOrder()).get());
-            max = matchIndices.values().stream().max(Comparator.<Long>naturalOrder()).get();
+            min = Math.max(stateMachine.getCommitIndex(), matchIndices.values().stream().min(naturalOrder()).get());
+            max = matchIndices.values().stream().max(naturalOrder()).get();
+            assert max >= min;
         }
         for (long idx = max; idx >= min; --idx) {
             final boolean isMajority;

@@ -150,22 +150,13 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                         request.getPayloadCase(), client.getInetAddress(), client.getPort());
                 switch (request.getPayloadCase()) {
                     case APPENDENTRIESREQUEST:
-                        requestListener.onAppendEntriesRequest(
-                                checkNotNull(request.getAppendEntriesRequest(),
-                                        "append entry request from %s:%s", client.getInetAddress(), client.getPort())
-                        ).writeDelimitedTo(outputStream);
+                        requestListener.onAppendEntriesRequest(request.getAppendEntriesRequest()).writeDelimitedTo(outputStream);
                         break;
                     case VOTEREQUEST:
-                        requestListener.onVoteRequest(
-                                checkNotNull(request.getVoteRequest(),
-                                        "vote request from %s:%s", client.getInetAddress(), client.getPort())
-                        ).writeDelimitedTo(outputStream);
+                        requestListener.onVoteRequest(request.getVoteRequest()).writeDelimitedTo(outputStream);
                         break;
                     case COMMAND:
-                        requestListener.onClientCommand(
-                                checkNotNull(request.getCommand(),
-                                        "client command request from %s:%s", client.getInetAddress(), client.getPort())
-                        ).writeDelimitedTo(outputStream);
+                        requestListener.onClientCommand(request.getCommand()).writeDelimitedTo(outputStream);
                         break;
                     default:
                         throw new IllegalArgumentException("payload not set");
