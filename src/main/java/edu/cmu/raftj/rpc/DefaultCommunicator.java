@@ -58,7 +58,6 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                             @Override
                             public void uncaughtException(Thread t, Throwable e) {
                                 logger.error("exception thrown", e);
-                                System.exit(-1);
                             }
                         }).build()
         ));
@@ -73,10 +72,12 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                  final OutputStream outputStream = socket.getOutputStream();
                  final InputStream inputStream = socket.getInputStream()) {
                 request.writeDelimitedTo(outputStream);
-                settableFuture.set(builder.apply(inputStream));
+                T value = builder.apply(inputStream);
+                checkNotNull(value, "the value passed from client is null");
+                settableFuture.set(value);
             } catch (Exception e) {
-                logger.warn("error in sending vote request to {}, exception class {}",
-                        hostAndPort, e.getClass());
+                logger.warn("error in sending vote request to {}, exception is {}",
+                        hostAndPort, e);
                 settableFuture.setException(e);
             }
         });
@@ -148,19 +149,29 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                 logger.debug("handling {} request from {}:{}",
                         request.getPayloadCase(), client.getInetAddress(), client.getPort());
                 switch (request.getPayloadCase()) {
-                    case APPENDENTRIESREQUEST: {
-                        requestListener.onAppendEntriesRequest(request.getAppendEntriesRequest()).writeDelimitedTo(outputStream);
+                    case APPENDENTRIESREQUEST:
+                        requestListener.onAppendEntriesRequest(
+                                checkNotNull(request.getAppendEntriesRequest(),
+                                        "append entry request from %s:%s", client.getInetAddress(), client.getPort())
+                        ).writeDelimitedTo(outputStream);
                         break;
-                    }
-                    case VOTEREQUEST: {
-                        requestListener.onVoteRequest(request.getVoteRequest()).writeDelimitedTo(outputStream);
+                    case VOTEREQUEST:
+                        requestListener.onVoteRequest(
+                                checkNotNull(request.getVoteRequest(),
+                                        "vote request from %s:%s", client.getInetAddress(), client.getPort())
+                        ).writeDelimitedTo(outputStream);
                         break;
-                    }
+                    case COMMAND:
+                        requestListener.onClientCommand(
+                                checkNotNull(request.getCommand(),
+                                        "client command request from %s:%s", client.getInetAddress(), client.getPort())
+                        ).writeDelimitedTo(outputStream);
+                        break;
                     default:
                         throw new IllegalArgumentException("payload not set");
                 }
             } catch (Exception e) {
-                logger.warn("exception in accepting client", e);
+                logger.warn("exception while handling client", e);
             }
         }
     }

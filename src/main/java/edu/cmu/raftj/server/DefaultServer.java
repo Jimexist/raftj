@@ -1,5 +1,6 @@
 package edu.cmu.raftj.server;
 
+import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -156,7 +157,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
         } else {
             return ClientMessageResponse.newBuilder()
                     .setSuccess(false)
-                    .setLeaderID(currentLeaderID.get())
+                    .setLeaderID(Strings.nullToEmpty(currentLeaderID.get()))
                     .build();
         }
     }
@@ -261,8 +262,8 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             Futures.addCallback(response, new FutureCallback<AppendEntriesResponse>() {
                 @Override
                 public void onSuccess(AppendEntriesResponse result) {
-                    syncCurrentTerm(result.getTerm(), result.getSenderID());
                     // logger.info("[{}] successfully got result of append entries {}", getCurrentRole(), result);
+                    syncCurrentTerm(result.getTerm(), result.getSenderID());
                 }
 
                 @Override
