@@ -19,6 +19,7 @@ import java.net.ConnectException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Random;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -40,14 +41,13 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     private final AtomicLong lastApplied = new AtomicLong(0);
     private final BlockingDeque<Long> heartbeats = Queues.newLinkedBlockingDeque();
     private final AtomicReference<Role> currentRole = new AtomicReference<>(Follower);
-    private final long electionTimeout;
     private final Communicator communicator;
     private final Persistence persistence;
     private final Map<String, Long> nextIndices = Maps.newConcurrentMap();
     private final Map<String, Long> matchIndices = Maps.newConcurrentMap();
+    private final Random random = new Random();
 
-    public DefaultServer(long electionTimeout, Communicator communicator, Persistence persistence) throws IOException {
-        this.electionTimeout = electionTimeout;
+    public DefaultServer(Communicator communicator, Persistence persistence) throws IOException {
         this.communicator = checkNotNull(communicator, "communicator");
         this.persistence = checkNotNull(persistence, "persistence");
     }
@@ -200,6 +200,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
      */
     private void checkElectionTimeout() throws InterruptedException {
         while (true) {
+            final long electionTimeout = getElectionTimeout();
             final Long hb = heartbeats.poll(electionTimeout, TimeUnit.MILLISECONDS);
             if (hb == null) {
                 logger.info("[{}] election timeout, convert to candidate", getCurrentRole());
@@ -221,7 +222,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 getCurrentRole(), persistence.getCurrentTerm());
         while (getCurrentRole() == Candidate) {
             final long newTerm = persistence.incrementAndGetCurrentTerm();
-            logger.info("[{}] increasing to new term {}", getCurrentRole(), newTerm);
+            logger.info("[{}] start election, increasing to new term {}", getCurrentRole(), newTerm);
 
             final VoteRequest.Builder builder = VoteRequest.newBuilder()
                     .setCandidateId(getServerId())
@@ -236,7 +237,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             }
             try {
                 List<VoteResponse> responses = communicator.sendVoteRequest(builder.build())
-                        .get(electionTimeout, TimeUnit.MILLISECONDS);
+                        .get(getElectionTimeout(), TimeUnit.MILLISECONDS);
                 // update term if possible
                 responses.stream().filter(Objects::nonNull)
                         .forEach((response) -> syncCurrentTerm(response.getTerm()));
@@ -315,7 +316,21 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     }
 
     @Override
+    protected String serviceName() {
+        return getServerId();
+    }
+
+    private long getElectionTimeout() {
+        return 100 + random.nextInt(50);
+    }
+
+    @Override
     protected Scheduler scheduler() {
-        return Scheduler.newFixedDelaySchedule(0, electionTimeout / 2, TimeUnit.MILLISECONDS);
+        return new CustomScheduler() {
+            @Override
+            protected Schedule getNextSchedule() throws Exception {
+                return new Schedule(getElectionTimeout() / 2, TimeUnit.MILLISECONDS);
+            }
+        };
     }
 }

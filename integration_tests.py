@@ -5,17 +5,26 @@ import time
 
 JAR = 'target/raftj-1.0-SNAPSHOT-jar-with-dependencies.jar'
 
-def main():
-    try:
+def start_all_servers():
+    servers = []
+    for i in ['17001','17002','17003','17004','17005']:
         p = subprocess.Popen([
             'java',
             '-jar', JAR,
-            'localhost:17001',
-            'log.txt'
+            'localhost:{}'.format(i),
+            '{}.log'.format(i),
         ])
-        p.wait()
+        servers.append(p)
+    return servers
+
+def main():
+    try:
+        servers = start_all_servers()
+        time.sleep(100)
     finally:
-        p.terminate()
+        for p in servers:
+            print p.terminate()
+            print p.wait()
 
 if __name__ == "__main__":
     main()

@@ -6,6 +6,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.io.Files;
 import com.google.common.net.HostAndPort;
+import com.google.common.util.concurrent.Service;
 import com.google.common.util.concurrent.ServiceManager;
 import edu.cmu.raftj.persistence.FilePersistence;
 import edu.cmu.raftj.persistence.Persistence;
@@ -34,10 +35,6 @@ public final class Runner {
     private static final Logger logger = LoggerFactory.getLogger(Runner.class);
 
     private Runner() {
-    }
-
-    private static long getElectionTimeout() {
-        return Long.parseLong(System.getProperty("raftj.election.timeout", "130"));
     }
 
     private static ImmutableSet<HostAndPort> getServersList() {
@@ -79,20 +76,26 @@ public final class Runner {
 
         final DefaultCommunicator communicator = new DefaultCommunicator(hostAndPort, Sets.difference(servers, ImmutableSet.of(hostAndPort)));
         final Persistence persistence = new FilePersistence(Paths.get(args[1]));
-        final DefaultServer server = new DefaultServer(getElectionTimeout(), communicator, persistence);
+        final DefaultServer server = new DefaultServer(communicator, persistence);
         communicator.setRequestListener(server);
 
         final ServiceManager serviceManager = new ServiceManager(ImmutableList.of(server, communicator));
-        serviceManager.startAsync();
-        serviceManager.awaitHealthy();
 
-        // shutdown - TODO, wait
-        serviceManager.stopAsync();
-        try {
-            serviceManager.awaitStopped(5, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            logger.error("failed to shutdown", e);
-        }
+        serviceManager.addListener(new ServiceManager.Listener() {
+
+            @Override
+            public void failure(Service service) {
+                logger.error("failure in service {}", service);
+                try {
+                    serviceManager.stopAsync().awaitStopped(5, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
+                    logger.error("failed to shutdown", e);
+                    System.exit(-1);
+                }
+            }
+        });
+
+        serviceManager.startAsync().awaitHealthy();
 
     }
 }

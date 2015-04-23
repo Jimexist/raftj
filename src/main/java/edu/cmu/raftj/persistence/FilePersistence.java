@@ -178,6 +178,7 @@ public class FilePersistence implements Persistence {
 
     @Override
     public synchronized void close() throws IOException {
+        logger.info("closing persistence file {}", path);
         outputStream.close();
     }
 }

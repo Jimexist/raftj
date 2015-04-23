@@ -77,7 +77,7 @@ public class DefaultServerTest {
         when(communicator.getServerHostAndPort()).thenReturn(HostAndPort.fromParts("localhost", 7654));
 
         final Persistence persistence = new FilePersistence(Files.createTempFile("prefix_", ".log"));
-        defaultServer = new DefaultServer(42L, communicator, persistence);
+        defaultServer = new DefaultServer(communicator, persistence);
         serviceManager = new ServiceManager(ImmutableList.of(defaultServer));
         serviceManager.addListener(new ServiceManager.Listener() {
             @Override
