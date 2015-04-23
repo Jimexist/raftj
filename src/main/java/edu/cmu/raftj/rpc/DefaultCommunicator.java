@@ -72,7 +72,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
             });
             list.add(settableFuture);
         }
-        return Futures.allAsList(list);
+        return Futures.successfulAsList(list);
     }
 
     @Override

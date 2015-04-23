@@ -3,7 +3,10 @@ package edu.cmu.raftj.server;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-import com.google.common.util.concurrent.*;
+import com.google.common.util.concurrent.AbstractScheduledService;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.Communicator;
 import edu.cmu.raftj.rpc.Messages.*;
@@ -12,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.ConnectException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -222,7 +226,6 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             final VoteRequest.Builder builder = VoteRequest.newBuilder()
                     .setCandidateId(getServerId())
                     .setCandidateTerm(newTerm);
-
             final LogEntry lastLogEntry = persistence.getLastLogEntry();
             if (lastLogEntry == null) {
                 builder.setLastLogIndex(0L);
@@ -241,8 +244,12 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                         .filter(Objects::nonNull)
                         .filter(VoteResponse::getVoteGranted)
                         .count();
-                logger.info("[{}] number of ayes {} out of {}", getCurrentRole(),
-                        numberOfAyes + 1, responses.size() + 1);
+                final long numberOfInvalids = responses.stream().filter(Objects::isNull).count();
+                logger.info("[{}] number of ayes {} out of {}, {} failed to respond",
+                        getCurrentRole(),
+                        numberOfAyes + 1,
+                        responses.size() + 1,
+                        numberOfInvalids);
                 if (2 * (numberOfAyes + 1) > (responses.size() + 1)) {
                     if (currentRole.compareAndSet(Candidate, Leader)) {
                         logger.info("[{}] won election, current term {}",
@@ -254,11 +261,19 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                     } else {
                         logger.info("[{}] election aborted", getCurrentRole());
                     }
-                } // else retry
-            } catch (InterruptedException | ExecutionException e) {
-                throw Throwables.propagate(e);
+                } else {
+                    logger.info("[{}] failed to get a majority, retrying...", getCurrentRole());
+                }
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof ConnectException) {
+                    logger.info("[{}] connect exception, retry", getCurrentRole());
+                } else {
+                    throw Throwables.propagate(e);
+                }
             } catch (TimeoutException e) {
                 logger.info("[{}] timeout waiting for vote responses, retry vote request", getCurrentRole());
+            } catch (InterruptedException e) {
+                throw Throwables.propagate(e);
             }
         }
         logger.info("[{}] lost election, current term {}", getCurrentRole(), persistence.getCurrentTerm());

@@ -4,6 +4,7 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import com.google.common.io.Files;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.ServiceManager;
 import edu.cmu.raftj.persistence.FilePersistence;
@@ -14,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.Reader;
+import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Set;
@@ -34,7 +37,7 @@ public final class Runner {
     }
 
     private static long getElectionTimeout() {
-        return Long.parseLong(System.getProperty("raftj.election.timeout", "1000"));
+        return Long.parseLong(System.getProperty("raftj.election.timeout", "130"));
     }
 
     private static ImmutableSet<HostAndPort> getServersList() {
@@ -45,17 +48,26 @@ public final class Runner {
         return result;
     }
 
-    private static HostAndPort getServerHostAndPort() {
-        return HostAndPort.fromString(System.getProperty("raftj.hostport"));
+    private static void loadPropertyFileFromJar(String filename) throws IOException {
+        System.getProperties().load(Runner.class.getClassLoader().getResourceAsStream(filename));
+    }
+
+    private static void loadPropertyFile(Path path) throws IOException {
+        Reader reader = Files.newReader(path.toFile(), Charset.defaultCharset());
+        System.getProperties().load(reader);
     }
 
     public static void main(String[] args) throws IOException {
-        checkArgument(args.length == 1, "usage: <config_file_path>");
-        String configFilePath = args[0];
-        Path path = Paths.get(configFilePath);
+        checkArgument(args.length == 2 || args.length == 3, "usage: <hostport> <log_file> <prop_file?>");
+
+        if (args.length == 3) {
+            loadPropertyFile(Paths.get(args[2]));
+        } else {
+            loadPropertyFileFromJar("config.properties");
+        }
 
         final Set<HostAndPort> servers = getServersList();
-        final HostAndPort hostAndPort = getServerHostAndPort();
+        final HostAndPort hostAndPort = HostAndPort.fromString(args[0]);
 
         checkArgument(!servers.isEmpty(), "server list cannot be empty");
         checkArgument(servers.size() % 2 == 1, "must be odd number"); // TODO - is this true?
@@ -66,7 +78,7 @@ public final class Runner {
         logger.info("server lists {}, this server is {}", servers, hostAndPort);
 
         final DefaultCommunicator communicator = new DefaultCommunicator(hostAndPort, Sets.difference(servers, ImmutableSet.of(hostAndPort)));
-        final Persistence persistence = new FilePersistence(path);
+        final Persistence persistence = new FilePersistence(Paths.get(args[1]));
         final DefaultServer server = new DefaultServer(getElectionTimeout(), communicator, persistence);
         communicator.setRequestListener(server);
 
