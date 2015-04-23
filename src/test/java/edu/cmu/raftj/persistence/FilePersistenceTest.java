@@ -51,14 +51,14 @@ public class FilePersistenceTest {
     @Test
     public void testGetLogEntry() throws Exception {
         try (FilePersistence filePersistence = new FilePersistence(path)) {
-            assertEquals(0, filePersistence.getLogEntriesSize());
+            assertEquals(0, filePersistence.getLastLogIndex());
             Messages.LogEntry logEntry = Messages.LogEntry.newBuilder().setLogIndex(1L).setTerm(10L).setCommand("x = 1").build();
             filePersistence.applyLogEntry(logEntry);
-            assertEquals(1, filePersistence.getLogEntriesSize());
+            assertEquals(1, filePersistence.getLastLogIndex());
         }
 
         try (FilePersistence filePersistence = new FilePersistence(path)) {
-            assertEquals(1, filePersistence.getLogEntriesSize());
+            assertEquals(1, filePersistence.getLastLogIndex());
             Messages.LogEntry logEntry = Messages.LogEntry.newBuilder().setLogIndex(1L).setTerm(10L).setCommand("x = 1").build();
             assertEquals(logEntry, filePersistence.getLogEntry(1));
         }

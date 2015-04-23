@@ -24,6 +24,7 @@ message VoteRequest {
 message VoteResponse {
     required int64 term = 1;
     required bool voteGranted = 2;
+    required string senderID = 3;
 }
 
 message AppendEntriesRequest {
@@ -38,12 +39,18 @@ message AppendEntriesRequest {
 message AppendEntriesResponse {
     required int64 term = 1;
     required bool success = 2;
+    required string senderID = 3;
 }
 
-// TODO this is necessary?
+message ClientMessageResponse {
+    required bool success = 1;
+    optional string leaderID = 2;
+}
+
 message Request {
     oneof payload {
         VoteRequest voteRequest = 1;
         AppendEntriesRequest appendEntriesRequest = 2;
+        string command = 3;
     }
 }

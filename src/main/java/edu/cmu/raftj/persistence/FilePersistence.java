@@ -144,7 +144,7 @@ public class FilePersistence implements Persistence {
     }
 
     @Override
-    public synchronized long getLogEntriesSize() {
+    public synchronized long getLastLogIndex() {
         return entries.size();
     }
 

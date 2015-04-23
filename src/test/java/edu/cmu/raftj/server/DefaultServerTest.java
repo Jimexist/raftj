@@ -50,6 +50,7 @@ public class DefaultServerTest {
         VoteResponse voteResponse = VoteResponse.newBuilder()
                 .setTerm(1L)
                 .setVoteGranted(true)
+                .setSenderID("self")
                 .build();
         when(communicator.sendVoteRequest(any(VoteRequest.class))).thenReturn(
                 immediateFuture(ImmutableList.of(voteResponse, voteResponse, voteResponse, voteResponse)));
@@ -65,6 +66,7 @@ public class DefaultServerTest {
         AppendEntriesResponse appendEntriesResponse = AppendEntriesResponse.newBuilder()
                 .setSuccess(true)
                 .setTerm(1L)
+                .setSenderID("self")
                 .build();
         when(communicator.sendAppendEntriesRequest(any(AppendEntriesRequest.class))).thenReturn(
                 immediateFuture(ImmutableList.of(appendEntriesResponse)));
@@ -77,7 +79,7 @@ public class DefaultServerTest {
         when(communicator.getServerHostAndPort()).thenReturn(HostAndPort.fromParts("localhost", 7654));
 
         final Persistence persistence = new FilePersistence(Files.createTempFile("prefix_", ".log"));
-        defaultServer = new DefaultServer(communicator, persistence);
+        defaultServer = new DefaultServer(new LoggingStateMachine(), communicator, persistence);
         serviceManager = new ServiceManager(ImmutableList.of(defaultServer));
         serviceManager.addListener(new ServiceManager.Listener() {
             @Override
@@ -151,7 +153,7 @@ public class DefaultServerTest {
         verify(communicator, never()).sendAppendEntriesRequest(any(AppendEntriesRequest.class));
 
         // vote yes
-        result.set(ImmutableList.of(VoteResponse.newBuilder().setTerm(1L).setVoteGranted(true).build()));
+        result.set(ImmutableList.of(VoteResponse.newBuilder().setSenderID("self").setTerm(1L).setVoteGranted(true).build()));
         while (defaultServer.getCurrentRole() == Role.Candidate) {
             // loop
         }
@@ -177,7 +179,7 @@ public class DefaultServerTest {
         verify(communicator, timeout(1000L).atLeast(3)).sendVoteRequest(any(VoteRequest.class));
 
         assertEquals(Role.Candidate, defaultServer.getCurrentRole());
-        result.set(ImmutableList.of(VoteResponse.newBuilder().setTerm(10000L).setVoteGranted(true).build()));
+        result.set(ImmutableList.of(VoteResponse.newBuilder().setSenderID("self").setTerm(10000L).setVoteGranted(true).build()));
         verify(communicator, never()).sendAppendEntriesRequest(any(AppendEntriesRequest.class));
         while (defaultServer.getCurrentRole() == Role.Candidate) {
             // loop

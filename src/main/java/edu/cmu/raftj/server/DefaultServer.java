@@ -24,10 +24,10 @@ import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.collect.Iterables.getLast;
 import static edu.cmu.raftj.server.Server.Role.*;
 
 /**
@@ -36,18 +36,18 @@ import static edu.cmu.raftj.server.Server.Role.*;
 public class DefaultServer extends AbstractScheduledService implements Server, RequestListener {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultServer.class);
-
-    private final AtomicLong commitIndex = new AtomicLong(0);
-    private final AtomicLong lastApplied = new AtomicLong(0);
     private final BlockingDeque<Long> heartbeats = Queues.newLinkedBlockingDeque();
     private final AtomicReference<Role> currentRole = new AtomicReference<>(Follower);
+    private final AtomicReference<String> currentLeaderID = new AtomicReference<>(null);
     private final Communicator communicator;
     private final Persistence persistence;
     private final Map<String, Long> nextIndices = Maps.newConcurrentMap();
     private final Map<String, Long> matchIndices = Maps.newConcurrentMap();
     private final Random random = new Random();
+    private final StateMachine stateMachine;
 
-    public DefaultServer(Communicator communicator, Persistence persistence) throws IOException {
+    public DefaultServer(StateMachine stateMachine, Communicator communicator, Persistence persistence) throws IOException {
+        this.stateMachine = checkNotNull(stateMachine, "state machine");
         this.communicator = checkNotNull(communicator, "communicator");
         this.persistence = checkNotNull(persistence, "persistence");
     }
@@ -57,9 +57,10 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
      *
      * @param term term
      */
-    private void syncCurrentTerm(long term) {
+    private void syncCurrentTerm(long term, String senderID) {
         if (persistence.largerThanAndSetCurrentTerm(term)) {
             final Role oldRole = currentRole.getAndSet(Follower);
+            currentLeaderID.set(senderID);
             logger.info("[{}] bumped current term to be {}, role was {}",
                     getCurrentRole(), term, oldRole);
         }
@@ -68,11 +69,11 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     @Override
     public VoteResponse onVoteRequest(VoteRequest voteRequest) {
         logger.info("[{}] got vote request {}", getCurrentRole(), voteRequest);
-        syncCurrentTerm(voteRequest.getCandidateTerm());
+        syncCurrentTerm(voteRequest.getCandidateTerm(), voteRequest.getCandidateId());
 
         final VoteResponse.Builder builder = VoteResponse.newBuilder().setVoteGranted(false);
         final String candidateId = checkNotNull(voteRequest.getCandidateId(), "candidate ID");
-        final boolean upToDate = voteRequest.getLastLogIndex() >= persistence.getLogEntriesSize();
+        final boolean upToDate = voteRequest.getLastLogIndex() >= persistence.getLastLogIndex();
         if (voteRequest.getCandidateTerm() >= getCurrentTerm() && upToDate) {
             if (Objects.equals(candidateId, persistence.getVotedForInCurrentTerm()) ||
                     persistence.compareAndSetVoteFor(null, candidateId)) {
@@ -89,29 +90,23 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             logger.info("[{}] voted no for {} because the log is not up to date",
                     getCurrentRole(), candidateId);
         }
-        return builder.setTerm(getCurrentTerm()).build();
+        return builder.setSenderID(getServerId()).setTerm(getCurrentTerm()).build();
     }
 
     private void updateCommitIndex(AppendEntriesRequest request) {
-        commitIndex.updateAndGet(value -> {
-            final long leaderCommitIndex = request.getLeaderCommitIndex();
-            if (leaderCommitIndex > value) {
-                final List<LogEntry> entryList = request.getLogEntriesList();
-                if (!entryList.isEmpty()) {
-                    return Math.min(leaderCommitIndex, entryList.get(entryList.size() - 1).getLogIndex());
-                }
-                return leaderCommitIndex;
-            } else {
-                return value;
-            }
-        });
+        long leaderCommitIndex = request.getLeaderCommitIndex();
+        final List<LogEntry> entryList = request.getLogEntriesList();
+        if (!entryList.isEmpty()) {
+            leaderCommitIndex = Math.min(leaderCommitIndex, getLast(entryList).getLogIndex());
+        }
+        stateMachine.increaseCommitIndex(leaderCommitIndex);
     }
 
     @Override
     public AppendEntriesResponse onAppendEntriesRequest(AppendEntriesRequest request) {
         logger.info("[{}] append entries request from {}, term {}",
                 getCurrentRole(), request.getLeaderId(), request.getLeaderTerm());
-        syncCurrentTerm(request.getLeaderTerm());
+        syncCurrentTerm(request.getLeaderTerm(), request.getLeaderId());
         heartbeats.addLast(System.currentTimeMillis());
 
         final AppendEntriesResponse.Builder builder = AppendEntriesResponse.newBuilder().setSuccess(false);
@@ -138,7 +133,30 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                         request.getPrevLogIndex());
             }
         }
-        return builder.setTerm(getCurrentTerm()).build();
+        return builder.setSenderID(getServerId()).setTerm(getCurrentTerm()).build();
+    }
+
+    @Override
+    public ClientMessageResponse onClientCommand(String command) {
+        logger.info("[{}] client command {}", getCurrentRole(), checkNotNull(command, "command"));
+        if (getCurrentRole() == Leader) {
+            LogEntry logEntry = LogEntry.newBuilder()
+                    .setCommand(command)
+                    .setTerm(getCurrentTerm())
+                    .setLogIndex(persistence.getLastLogIndex() + 1)
+                    .build();
+            persistence.applyLogEntry(logEntry);
+            stateMachine.increaseCommitIndex(logEntry.getLogIndex());
+            stateMachine.applyAllPendingCommandsFrom(persistence);
+            return ClientMessageResponse.newBuilder()
+                    .setSuccess(true)
+                    .build();
+        } else {
+            return ClientMessageResponse.newBuilder()
+                    .setSuccess(false)
+                    .setLeaderID(currentLeaderID.get())
+                    .build();
+        }
     }
 
     /**
@@ -146,11 +164,10 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
      */
     private void sendHeartbeat() {
         logger.info("[{}] sending heartbeat", getCurrentRole());
-
         AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder()
                 .setLeaderTerm(getCurrentTerm())
                 .setLeaderId(getServerId())
-                .setLeaderCommitIndex(commitIndex.get());
+                .setLeaderCommitIndex(stateMachine.getCommitIndex());
 
         LogEntry lastLogEntry = persistence.getLastLogEntry();
         if (lastLogEntry == null) {
@@ -167,7 +184,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             @Override
             public void onSuccess(List<AppendEntriesResponse> result) {
                 // update terms
-                result.stream().filter(Objects::nonNull).forEach((res) -> syncCurrentTerm(res.getTerm()));
+                result.stream().filter(Objects::nonNull).forEach((res) -> syncCurrentTerm(res.getTerm(), res.getSenderID()));
                 // logger.info("[{}] successfully got result of append entries {}", getCurrentRole(), result);
             }
 
@@ -181,27 +198,6 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     private void reinitializeLeaderStates() {
         nextIndices.clear();
         matchIndices.clear();
-    }
-
-    /**
-     * apply pending commits
-     */
-    private void applyCommits() {
-        while (lastApplied.get() < commitIndex.get()) {
-            long index = lastApplied.getAndIncrement();
-            LogEntry logEntry = persistence.getLogEntry(index);
-            String command = logEntry.getCommand();
-            applyCommand(command);
-        }
-    }
-
-    /**
-     * apply command to the state machine
-     *
-     * @param command command
-     */
-    private void applyCommand(String command) {
-        logger.info("applying command '{}'", command);
     }
 
     /**
@@ -228,7 +224,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
      */
     private void startElection() {
         logger.info("[{}] try to start election, current term {}",
-                getCurrentRole(), persistence.getCurrentTerm());
+                getCurrentRole(), getCurrentTerm());
         while (getCurrentRole() == Candidate) {
             final long newTerm = persistence.incrementAndGetCurrentTerm();
             logger.info("[{}] start election, increasing to new term {}", getCurrentRole(), newTerm);
@@ -249,7 +245,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                         .get(getElectionTimeout(), TimeUnit.MILLISECONDS);
                 // update term if possible
                 responses.stream().filter(Objects::nonNull)
-                        .forEach((response) -> syncCurrentTerm(response.getTerm()));
+                        .forEach((response) -> syncCurrentTerm(response.getTerm(), response.getSenderID()));
                 final long numberOfAyes = responses.stream()
                         .filter(Objects::nonNull)
                         .filter(VoteResponse::getVoteGranted)
@@ -263,7 +259,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 if (2 * (numberOfAyes + 1) > (responses.size() + 1)) {
                     if (currentRole.compareAndSet(Candidate, Leader)) {
                         logger.info("[{}] won election, current term {}",
-                                getCurrentRole(), persistence.getCurrentTerm());
+                                getCurrentRole(), getCurrentTerm());
                         reinitializeLeaderStates();
                         sendHeartbeat();
                         // done, return
@@ -286,7 +282,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 throw Throwables.propagate(e);
             }
         }
-        logger.info("[{}] lost election, current term {}", getCurrentRole(), persistence.getCurrentTerm());
+        logger.info("[{}] lost election, current term {}", getCurrentRole(), getCurrentTerm());
     }
 
     @Override
@@ -306,8 +302,8 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
     @Override
     protected void runOneIteration() throws Exception {
-        // apply commits if any pending ones are present
-        applyCommits();
+
+        stateMachine.applyAllPendingCommandsFrom(persistence);
 
         final Role role = getCurrentRole();
         switch (role) {
@@ -335,11 +331,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
     @Override
     protected Scheduler scheduler() {
-        return new CustomScheduler() {
-            @Override
-            protected Schedule getNextSchedule() throws Exception {
-                return new Schedule(getElectionTimeout() / 2, TimeUnit.MILLISECONDS);
-            }
-        };
+        final long heartbeatTimeout = 50L;
+        return Scheduler.newFixedDelaySchedule(0, heartbeatTimeout, TimeUnit.MILLISECONDS);
     }
 }

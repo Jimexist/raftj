@@ -12,6 +12,7 @@ import edu.cmu.raftj.persistence.FilePersistence;
 import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.DefaultCommunicator;
 import edu.cmu.raftj.server.DefaultServer;
+import edu.cmu.raftj.server.LoggingStateMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,7 +77,7 @@ public final class Runner {
 
         final DefaultCommunicator communicator = new DefaultCommunicator(hostAndPort, Sets.difference(servers, ImmutableSet.of(hostAndPort)));
         final Persistence persistence = new FilePersistence(Paths.get(args[1]));
-        final DefaultServer server = new DefaultServer(communicator, persistence);
+        final DefaultServer server = new DefaultServer(new LoggingStateMachine(), communicator, persistence);
         communicator.setRequestListener(server);
 
         final ServiceManager serviceManager = new ServiceManager(ImmutableList.of(communicator, server));
