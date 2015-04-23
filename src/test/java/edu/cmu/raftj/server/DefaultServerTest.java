@@ -149,7 +149,7 @@ public class DefaultServerTest {
         verify(communicator, timeout(5000L).atLeast(3)).sendVoteRequest(any(VoteRequest.class));
         assertEquals(Role.Candidate, defaultServer.getCurrentRole());
         verify(communicator, never()).sendAppendEntriesRequest(any(AppendEntriesRequest.class));
-        
+
         // vote yes
         result.set(ImmutableList.of(VoteResponse.newBuilder().setTerm(1L).setVoteGranted(true).build()));
         while (defaultServer.getCurrentRole() == Role.Candidate) {

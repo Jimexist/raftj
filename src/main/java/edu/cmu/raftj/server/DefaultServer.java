@@ -55,8 +55,9 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
      */
     private void syncCurrentTerm(long term) {
         if (persistence.largerThanAndSetCurrentTerm(term)) {
-            currentRole.set(Follower);
-            logger.info("[{}] bumped current term to be {}", getCurrentRole(), term);
+            final Role oldRole = currentRole.getAndSet(Follower);
+            logger.info("[{}] bumped current term to be {}, role was {}",
+                    getCurrentRole(), term, oldRole);
         }
     }
 
@@ -208,9 +209,12 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
         }
     }
 
-
+    /**
+     * start election while the role is candidate, abort earlier if that's no longer the case
+     */
     private void startElection() {
-        logger.info("[{}] try to start election, current term {}", getCurrentRole(), persistence.getCurrentTerm());
+        logger.info("[{}] try to start election, current term {}",
+                getCurrentRole(), persistence.getCurrentTerm());
         while (getCurrentRole() == Candidate) {
             final long newTerm = persistence.incrementAndGetCurrentTerm();
             logger.info("[{}] increasing to new term {}", getCurrentRole(), newTerm);
@@ -227,10 +231,9 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 builder.setLastLogIndex(lastLogEntry.getLogIndex());
                 builder.setLastLogTerm(lastLogEntry.getTerm());
             }
-
             try {
-                List<VoteResponse> responses =
-                        communicator.sendVoteRequest(builder.build()).get(electionTimeout, TimeUnit.MILLISECONDS);
+                List<VoteResponse> responses = communicator.sendVoteRequest(builder.build())
+                        .get(electionTimeout, TimeUnit.MILLISECONDS);
                 // update term if possible
                 responses.stream().filter(Objects::nonNull)
                         .forEach((response) -> syncCurrentTerm(response.getTerm()));
@@ -238,12 +241,15 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                         .filter(Objects::nonNull)
                         .filter(VoteResponse::getVoteGranted)
                         .count();
-                logger.info("[{}] number of ayes {} out of {}", getCurrentRole(), numberOfAyes, responses.size());
-                if (2 * (numberOfAyes + 1) > responses.size()) {
+                logger.info("[{}] number of ayes {} out of {}", getCurrentRole(),
+                        numberOfAyes + 1, responses.size() + 1);
+                if (2 * (numberOfAyes + 1) > (responses.size() + 1)) {
                     if (currentRole.compareAndSet(Candidate, Leader)) {
-                        logger.info("[{}] won election, current term {}", getCurrentRole(), persistence.getCurrentTerm());
-                        sendHeartbeat();
+                        logger.info("[{}] won election, current term {}",
+                                getCurrentRole(), persistence.getCurrentTerm());
                         reinitializeLeaderStates();
+                        sendHeartbeat();
+                        // done, return
                         return;
                     } else {
                         logger.info("[{}] election aborted", getCurrentRole());
@@ -252,10 +258,10 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             } catch (InterruptedException | ExecutionException e) {
                 throw Throwables.propagate(e);
             } catch (TimeoutException e) {
-                logger.info("[{}] election timeout, restart election", getCurrentRole());
+                logger.info("[{}] timeout waiting for vote responses, retry vote request", getCurrentRole());
             }
         }
-        logger.info("[{}] lose election, current term {}", getCurrentRole(), persistence.getCurrentTerm());
+        logger.info("[{}] lost election, current term {}", getCurrentRole(), persistence.getCurrentTerm());
     }
 
     @Override
@@ -278,7 +284,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
         // apply commits if any pending ones are present
         applyCommits();
 
-        Role role = getCurrentRole();
+        final Role role = getCurrentRole();
         switch (role) {
             case Follower:
                 checkElectionTimeout();
@@ -295,6 +301,6 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
     @Override
     protected Scheduler scheduler() {
-        return Scheduler.newFixedDelaySchedule(electionTimeout / 2, electionTimeout / 2, TimeUnit.MILLISECONDS);
+        return Scheduler.newFixedDelaySchedule(0, electionTimeout / 2, TimeUnit.MILLISECONDS);
     }
 }
