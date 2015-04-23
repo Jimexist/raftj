@@ -64,24 +64,30 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
         ));
     }
 
+    private <T extends GeneratedMessage> ListenableFuture<T> unicast(Request request,
+                                                                     Function<InputStream, T> builder,
+                                                                     HostAndPort hostAndPort) {
+        final SettableFuture<T> settableFuture = SettableFuture.create();
+        broadcastExecutor.execute(() -> {
+            try (final Socket socket = new Socket(InetAddress.getByName(hostAndPort.getHostText()), hostAndPort.getPort());
+                 final OutputStream outputStream = socket.getOutputStream();
+                 final InputStream inputStream = socket.getInputStream()) {
+                request.writeDelimitedTo(outputStream);
+                settableFuture.set(builder.apply(inputStream));
+            } catch (Exception e) {
+                logger.warn("error in sending vote request to {}, exception class {}",
+                        hostAndPort, e.getClass());
+                settableFuture.setException(e);
+            }
+        });
+        return settableFuture;
+    }
 
-    private <T extends GeneratedMessage> ListenableFuture<List<T>> boardCast(Request request, Function<InputStream, T> builder) {
+    private <T extends GeneratedMessage> ListenableFuture<List<T>> boardCast(Request request,
+                                                                             Function<InputStream, T> builder) {
         final List<ListenableFuture<T>> list = Lists.newArrayList();
         for (HostAndPort hostAndPort : audience) {
-            final SettableFuture<T> settableFuture = SettableFuture.create();
-            broadcastExecutor.execute(() -> {
-                try (final Socket socket = new Socket(InetAddress.getByName(hostAndPort.getHostText()), hostAndPort.getPort());
-                     final OutputStream outputStream = socket.getOutputStream();
-                     final InputStream inputStream = socket.getInputStream()) {
-                    request.writeDelimitedTo(outputStream);
-                    settableFuture.set(builder.apply(inputStream));
-                } catch (Exception e) {
-                    logger.warn("error in sending vote request to {}, exception class {}",
-                            hostAndPort, e.getClass());
-                    settableFuture.setException(e);
-                }
-            });
-            list.add(settableFuture);
+            list.add(unicast(request, builder, hostAndPort));
         }
         return Futures.successfulAsList(list);
     }
@@ -98,14 +104,15 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
     }
 
     @Override
-    public ListenableFuture<List<AppendEntriesResponse>> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
-        return boardCast(Request.newBuilder().setAppendEntriesRequest(appendEntriesRequest).build(), (is) -> {
+    public ListenableFuture<AppendEntriesResponse> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest,
+                                                                            HostAndPort hostAndPort) {
+        return unicast(Request.newBuilder().setAppendEntriesRequest(appendEntriesRequest).build(), (is) -> {
             try {
                 return AppendEntriesResponse.parseDelimitedFrom(is);
             } catch (IOException e) {
                 throw Throwables.propagate(e);
             }
-        });
+        }, hostAndPort);
     }
 
     @Override

@@ -1,6 +1,7 @@
 package edu.cmu.raftj.persistence;
 
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Ints;
 import edu.cmu.raftj.rpc.Messages.LogEntry;
@@ -132,6 +133,12 @@ public class FilePersistence implements Persistence {
         checkArgument(index > 0, "log index must be positive: %s", index);
         // we have to be practical
         return entries.get(Ints.checkedCast(index - 1));
+    }
+
+    @Override
+    public synchronized ImmutableList<LogEntry> getLogEntriesFrom(long fromIndex) {
+        checkArgument(fromIndex > 0, "log index must be positive: %s", fromIndex);
+        return ImmutableList.copyOf(entries.subList(Ints.checkedCast(fromIndex), entries.size()));
     }
 
     @Nullable

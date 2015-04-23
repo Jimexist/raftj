@@ -1,6 +1,7 @@
 package edu.cmu.raftj.server;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.Service;
 import com.google.common.util.concurrent.ServiceManager;
@@ -68,8 +69,8 @@ public class DefaultServerTest {
                 .setTerm(1L)
                 .setSenderID("self")
                 .build();
-        when(communicator.sendAppendEntriesRequest(any(AppendEntriesRequest.class))).thenReturn(
-                immediateFuture(ImmutableList.of(appendEntriesResponse)));
+        when(communicator.sendAppendEntriesRequest(any(AppendEntriesRequest.class), any(HostAndPort.class))).thenReturn(
+                immediateFuture(appendEntriesResponse));
     }
 
     @Before
@@ -77,6 +78,12 @@ public class DefaultServerTest {
         initMocks(this);
 
         when(communicator.getServerHostAndPort()).thenReturn(HostAndPort.fromParts("localhost", 7654));
+        when(communicator.getAudience()).thenReturn(ImmutableSet.of(
+                HostAndPort.fromParts("localhost", 7654),
+                HostAndPort.fromParts("localhost", 7655),
+                HostAndPort.fromParts("localhost", 7656),
+                HostAndPort.fromParts("localhost", 7657)
+        ));
 
         final Persistence persistence = new FilePersistence(Files.createTempFile("prefix_", ".log"));
         defaultServer = new DefaultServer(new LoggingStateMachine(), communicator, persistence);
@@ -145,12 +152,12 @@ public class DefaultServerTest {
     @Test
     public void testVoteRetry() throws Exception {
         mockImmediateAppendResponse();
-        SettableFuture<List<VoteResponse>> result  = mockFutureVoteResponse();
+        SettableFuture<List<VoteResponse>> result = mockFutureVoteResponse();
         serviceManager.startAsync().awaitHealthy();
 
         verify(communicator, timeout(5000L).atLeast(3)).sendVoteRequest(any(VoteRequest.class));
         assertEquals(Role.Candidate, defaultServer.getCurrentRole());
-        verify(communicator, never()).sendAppendEntriesRequest(any(AppendEntriesRequest.class));
+        verify(communicator, never()).sendAppendEntriesRequest(any(AppendEntriesRequest.class), any(HostAndPort.class));
 
         // vote yes
         result.set(ImmutableList.of(VoteResponse.newBuilder().setSenderID("self").setTerm(1L).setVoteGranted(true).build()));
@@ -158,13 +165,13 @@ public class DefaultServerTest {
             // loop
         }
         assertEquals(Leader, defaultServer.getCurrentRole());
-        verify(communicator, timeout(1000L).atLeast(1)).sendAppendEntriesRequest(any(AppendEntriesRequest.class));
+        verify(communicator, timeout(1000L).atLeast(1)).sendAppendEntriesRequest(any(AppendEntriesRequest.class), any(HostAndPort.class));
     }
 
     @Test
     public void testVoteRetryWithHigherTerm() throws Exception {
         mockImmediateAppendResponse();
-        SettableFuture<List<VoteResponse>> result  = mockFutureVoteResponse();
+        SettableFuture<List<VoteResponse>> result = mockFutureVoteResponse();
         serviceManager.startAsync().awaitHealthy();
 
         VoteRequest voteRequest = VoteRequest.newBuilder()
@@ -180,7 +187,7 @@ public class DefaultServerTest {
 
         assertEquals(Role.Candidate, defaultServer.getCurrentRole());
         result.set(ImmutableList.of(VoteResponse.newBuilder().setSenderID("self").setTerm(10000L).setVoteGranted(true).build()));
-        verify(communicator, never()).sendAppendEntriesRequest(any(AppendEntriesRequest.class));
+        verify(communicator, never()).sendAppendEntriesRequest(any(AppendEntriesRequest.class), any(HostAndPort.class));
         while (defaultServer.getCurrentRole() == Role.Candidate) {
             // loop
         }

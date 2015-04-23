@@ -1,8 +1,10 @@
 package edu.cmu.raftj.server;
 
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -14,12 +16,9 @@ import edu.cmu.raftj.rpc.RequestListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
+import javax.annotation.concurrent.GuardedBy;
 import java.net.ConnectException;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.collect.Iterables.getLast;
+import static com.google.common.collect.Maps.asMap;
 import static edu.cmu.raftj.server.Server.Role.*;
 
 /**
@@ -41,12 +41,14 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     private final AtomicReference<String> currentLeaderID = new AtomicReference<>(null);
     private final Communicator communicator;
     private final Persistence persistence;
-    private final Map<String, Long> nextIndices = Maps.newConcurrentMap();
-    private final Map<String, Long> matchIndices = Maps.newConcurrentMap();
+    @GuardedBy("synchronization block")
+    private final Map<HostAndPort, Long> nextIndices = Maps.newHashMap();
+    @GuardedBy("synchronization block")
+    private final Map<HostAndPort, Long> matchIndices = Maps.newHashMap();
     private final Random random = new Random();
     private final StateMachine stateMachine;
 
-    public DefaultServer(StateMachine stateMachine, Communicator communicator, Persistence persistence) throws IOException {
+    public DefaultServer(StateMachine stateMachine, Communicator communicator, Persistence persistence) {
         this.stateMachine = checkNotNull(stateMachine, "state machine");
         this.communicator = checkNotNull(communicator, "communicator");
         this.persistence = checkNotNull(persistence, "persistence");
@@ -104,7 +106,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
     @Override
     public AppendEntriesResponse onAppendEntriesRequest(AppendEntriesRequest request) {
-        logger.info("[{}] append entries request from {}, term {}",
+        logger.info("[{}] append entries request / heartbeat from {}, term {}",
                 getCurrentRole(), request.getLeaderId(), request.getLeaderTerm());
         syncCurrentTerm(request.getLeaderTerm(), request.getLeaderId());
         heartbeats.addLast(System.currentTimeMillis());
@@ -146,8 +148,8 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                     .setLogIndex(persistence.getLastLogIndex() + 1)
                     .build();
             persistence.applyLogEntry(logEntry);
-            stateMachine.increaseCommitIndex(logEntry.getLogIndex());
-            stateMachine.applyAllPendingCommandsFrom(persistence);
+            sendAndWaitLogReplications();
+            updateCommitIndexAfterReplications();
             return ClientMessageResponse.newBuilder()
                     .setSuccess(true)
                     .build();
@@ -156,6 +158,83 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                     .setSuccess(false)
                     .setLeaderID(currentLeaderID.get())
                     .build();
+        }
+    }
+
+    private AppendEntriesRequest buildReplicationRequest(long from) {
+        ImmutableList<LogEntry> entries = persistence.getLogEntriesFrom(from);
+        AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder()
+                .setLeaderTerm(getCurrentTerm())
+                .setLeaderId(getServerId())
+                .setLeaderCommitIndex(stateMachine.getCommitIndex())
+                .addAllLogEntries(entries);
+        if (from > 1) {
+            final LogEntry prev = persistence.getLogEntry(from - 1);
+            builder.setPrevLogIndex(prev.getLogIndex()).setPrevLogTerm(prev.getTerm());
+        } else {
+            builder.setPrevLogTerm(0L).setPrevLogIndex(0L);
+        }
+        return builder.build();
+    }
+
+    private void sendAndWaitLogReplications() {
+        final Deque<HostAndPort> nextFollower = Queues.newArrayDeque(communicator.getAudience());
+        while (!nextFollower.isEmpty()) {
+            final HostAndPort nextAudience = nextFollower.removeFirst();
+            final long nextIndex;
+            synchronized (nextIndices) {
+                nextIndex = nextIndices.get(nextAudience);
+            }
+            final long lastIndex = persistence.getLastLogIndex();
+            if (nextIndex <= lastIndex) {
+                try {
+                    AppendEntriesResponse response =
+                            communicator.sendAppendEntriesRequest(buildReplicationRequest(nextIndex), nextAudience).get();
+                    if (!response.getSuccess()) {
+                        logger.warn("[{}] follower {} responded false for append entries request, " +
+                                        "decrement next index to {} and retry",
+                                getCurrentRole(), nextIndex - 1);
+                        synchronized (nextIndices) {
+                            nextIndices.put(nextAudience, nextIndex - 1);
+                        }
+                        nextFollower.addLast(nextAudience);
+                    } else {
+                        logger.info("[{}] successfully replicated logs [{}, {}) to follower {}",
+                                getCurrentRole(), nextIndex, lastIndex + 1, nextAudience);
+                        synchronized (nextIndices) {
+                            nextIndices.put(nextAudience, lastIndex + 1);
+                        }
+                        synchronized (matchIndices) {
+                            matchIndices.put(nextAudience, lastIndex + 1);
+                        }
+                    }
+                } catch (InterruptedException | ExecutionException e) {
+                    logger.warn("[{}] failed to send log replications to {}, retrying", getCurrentRole(), nextAudience);
+                    nextFollower.addLast(nextAudience);
+                }
+            }
+        }
+    }
+
+    private void updateCommitIndexAfterReplications() {
+        final long min, max;
+        synchronized (matchIndices) {
+            min = Math.max(stateMachine.getCommitIndex(),
+                    matchIndices.values().stream().min(Comparator.<Long>naturalOrder()).get());
+            max = matchIndices.values().stream().max(Comparator.<Long>naturalOrder()).get();
+        }
+        for (long idx = max; idx >= min; --idx) {
+            final boolean isMajority;
+            synchronized (matchIndices) {
+                final long finalIdx = idx;
+                final long count = matchIndices.values().stream().filter((v) -> v >= finalIdx).count();
+                isMajority = 2 * (count + 1) > (matchIndices.size() + 1);
+            }
+            if (isMajority && persistence.getLogEntry(idx).getTerm() == getCurrentTerm()) {
+                stateMachine.increaseCommitIndex(idx);
+                logger.info("[{}] increase commit index to {}", getCurrentRole(), idx);
+                break;
+            }
         }
     }
 
@@ -168,7 +247,6 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 .setLeaderTerm(getCurrentTerm())
                 .setLeaderId(getServerId())
                 .setLeaderCommitIndex(stateMachine.getCommitIndex());
-
         LogEntry lastLogEntry = persistence.getLastLogEntry();
         if (lastLogEntry == null) {
             builder.setPrevLogIndex(0L);
@@ -177,27 +255,31 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             builder.setPrevLogIndex(lastLogEntry.getLogIndex());
             builder.setPrevLogTerm(lastLogEntry.getTerm());
         }
+        final AppendEntriesRequest request = builder.build();
+        communicator.getAudience().stream().forEach((follower) -> {
+            ListenableFuture<AppendEntriesResponse> response = communicator.sendAppendEntriesRequest(request, follower);
+            Futures.addCallback(response, new FutureCallback<AppendEntriesResponse>() {
+                @Override
+                public void onSuccess(AppendEntriesResponse result) {
+                    syncCurrentTerm(result.getTerm(), result.getSenderID());
+                    // logger.info("[{}] successfully got result of append entries {}", getCurrentRole(), result);
+                }
 
-        ListenableFuture<List<AppendEntriesResponse>> responses =
-                communicator.sendAppendEntriesRequest(builder.build());
-        Futures.addCallback(responses, new FutureCallback<List<AppendEntriesResponse>>() {
-            @Override
-            public void onSuccess(List<AppendEntriesResponse> result) {
-                // update terms
-                result.stream().filter(Objects::nonNull).forEach((res) -> syncCurrentTerm(res.getTerm(), res.getSenderID()));
-                // logger.info("[{}] successfully got result of append entries {}", getCurrentRole(), result);
-            }
-
-            @Override
-            public void onFailure(Throwable t) {
-                logger.error("[{}] error in getting response from heartbeats: {}", getCurrentRole(), t);
-            }
+                @Override
+                public void onFailure(Throwable t) {
+                    logger.error("[{}] error in getting response from heartbeats: {}", getCurrentRole(), t);
+                }
+            });
         });
     }
 
     private void reinitializeLeaderStates() {
-        nextIndices.clear();
-        matchIndices.clear();
+        synchronized (nextIndices) {
+            nextIndices.putAll(asMap(communicator.getAudience(), (x) -> persistence.getLastLogIndex() + 1));
+        }
+        synchronized (matchIndices) {
+            matchIndices.putAll(asMap(communicator.getAudience(), (x) -> 0L));
+        }
     }
 
     /**
@@ -302,9 +384,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
     @Override
     protected void runOneIteration() throws Exception {
-
         stateMachine.applyAllPendingCommandsFrom(persistence);
-
         final Role role = getCurrentRole();
         switch (role) {
             case Follower:

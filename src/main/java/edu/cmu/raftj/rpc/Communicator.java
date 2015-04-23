@@ -19,7 +19,7 @@ public interface Communicator {
      * invoked by candidates to gather votes
      *
      * @param voteRequest vote request
-     * @return yes or no
+     * @return response
      */
     ListenableFuture<List<VoteResponse>> sendVoteRequest(VoteRequest voteRequest);
 
@@ -27,9 +27,11 @@ public interface Communicator {
      * invoked by leader to replicate log entries and heartbeat
      *
      * @param appendEntriesRequest append request
-     * @return yes or no
+     * @param follower             follower host and port
+     * @return response
      */
-    ListenableFuture<List<AppendEntriesResponse>> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest);
+    ListenableFuture<AppendEntriesResponse> sendAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest,
+                                                                           HostAndPort follower);
 
     void setRequestListener(RequestListener requestListener);
 
