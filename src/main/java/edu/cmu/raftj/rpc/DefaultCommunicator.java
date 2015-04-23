@@ -76,8 +76,8 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                     request.writeDelimitedTo(outputStream);
                     settableFuture.set(builder.apply(inputStream));
                 } catch (Exception e) {
-                    logger.warn("error in sending vote request to {}, exception {}",
-                            hostAndPort, Throwables.getStackTraceAsString(e));
+                    logger.warn("error in sending vote request to {}, exception class {}",
+                            hostAndPort, e.getClass());
                     settableFuture.setException(e);
                 }
             });
