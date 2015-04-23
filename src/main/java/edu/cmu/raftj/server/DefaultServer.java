@@ -55,31 +55,31 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
      */
     private void syncCurrentTerm(long term) {
         if (persistence.largerThanAndSetCurrentTerm(term)) {
-            logger.info("[{}] bump current term to be {}", currentRole.get(), term);
             currentRole.set(Follower);
+            logger.info("[{}] bumped current term to be {}", getCurrentRole(), term);
         }
     }
 
     @Override
     public VoteResponse onVoteRequest(VoteRequest voteRequest) {
-        logger.info("[{}] got vote request {}", currentRole.get(), voteRequest);
+        logger.info("[{}] got vote request {}", getCurrentRole(), voteRequest);
         syncCurrentTerm(voteRequest.getCandidateTerm());
 
         final VoteResponse.Builder builder = VoteResponse.newBuilder().setVoteGranted(false);
         final String candidateId = checkNotNull(voteRequest.getCandidateId(), "candidate ID");
         final boolean upToDate = voteRequest.getLastLogIndex() >= (persistence.getLogEntriesSize() + 1);
         if (voteRequest.getCandidateTerm() >= getCurrentTerm() && upToDate) {
-            if (Objects.equals(candidateId, persistence.getVotedFor()) ||
+            if (Objects.equals(candidateId, persistence.getVotedForInCurrentTerm()) ||
                     persistence.compareAndSetVoteFor(null, candidateId)) {
-                logger.info("[{}] voted yes for {}", currentRole.get(), candidateId);
+                logger.info("[{}] voted yes for {}", getCurrentRole(), candidateId);
                 builder.setVoteGranted(true);
             } else {
                 logger.info("[{}] voted no for {} because already voted for {}",
-                        currentRole.get(), candidateId, persistence.getVotedFor());
+                        getCurrentRole(), candidateId, persistence.getVotedForInCurrentTerm());
             }
         } else {
             logger.info("[{}] voted no for {} because the request was too old",
-                    currentRole.get(), candidateId);
+                    getCurrentRole(), candidateId);
         }
         return builder.setTerm(getCurrentTerm()).build();
     }
@@ -101,7 +101,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
     @Override
     public AppendEntriesResponse onAppendEntriesRequest(AppendEntriesRequest request) {
-        logger.info("[{}] append entries request {}", currentRole.get(), request);
+        logger.info("[{}] append entries request {}", getCurrentRole(), request);
         syncCurrentTerm(request.getLeaderTerm());
         heartbeats.addLast(System.currentTimeMillis());
 
@@ -117,11 +117,11 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                     builder.setSuccess(true);
                 } else {
                     logger.warn("[{}] prev entry mismatch, local last term {}, remote prev term {}",
-                            currentRole.get(), entry.getTerm(), request.getPrevLogTerm());
+                            getCurrentRole(), entry.getTerm(), request.getPrevLogTerm());
                 }
             } else {
                 logger.warn("[{}] log entries are too new, remote prev index {}",
-                        currentRole.get(),
+                        getCurrentRole(),
                         request.getPrevLogIndex());
             }
         }
@@ -132,7 +132,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
      * leader sends heartbeat
      */
     private void sendHeartbeat() {
-        logger.info("[{}] sending heartbeat", currentRole.get());
+        logger.info("[{}] sending heartbeat", getCurrentRole());
 
         AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder()
                 .setLeaderTerm(getCurrentTerm())
@@ -159,7 +159,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
             @Override
             public void onFailure(Throwable t) {
-                logger.error("[{}] error in getting response from heartbeats: {}", currentRole.get(), t);
+                logger.error("[{}] error in getting response from heartbeats: {}", getCurrentRole(), t);
             }
         });
     }
@@ -197,9 +197,10 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
         while (true) {
             final Long hb = heartbeats.poll(electionTimeout, TimeUnit.MILLISECONDS);
             if (hb == null) {
-                logger.info("[{}] election timeout, convert to candidate", currentRole.get());
-                currentRole.set(Candidate);
-                startElection();
+                logger.info("[{}] election timeout, convert to candidate", getCurrentRole());
+                if (currentRole.compareAndSet(Follower, Candidate)) {
+                    startElection();
+                }
                 break;
             } else if (hb + electionTimeout > System.currentTimeMillis()) {
                 break;
@@ -209,10 +210,10 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
 
     private void startElection() {
-        logger.info("[{}] try to start election, current term {}", currentRole.get(), persistence.getCurrentTerm());
-        while (currentRole.get() == Candidate) {
+        logger.info("[{}] try to start election, current term {}", getCurrentRole(), persistence.getCurrentTerm());
+        while (getCurrentRole() == Candidate) {
             final long newTerm = persistence.incrementAndGetCurrentTerm();
-            logger.info("[{}] increasing to new term {}", currentRole.get(), newTerm);
+            logger.info("[{}] increasing to new term {}", getCurrentRole(), newTerm);
 
             final VoteRequest.Builder builder = VoteRequest.newBuilder()
                     .setCandidateId(getServerId())
@@ -240,19 +241,21 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 logger.info("[{}] number of ayes {} out of {}", getCurrentRole(), numberOfAyes, responses.size());
                 if (2 * (numberOfAyes + 1) > responses.size()) {
                     if (currentRole.compareAndSet(Candidate, Leader)) {
-                        logger.info("[{}] won election, current term {}", currentRole.get(), persistence.getCurrentTerm());
+                        logger.info("[{}] won election, current term {}", getCurrentRole(), persistence.getCurrentTerm());
                         sendHeartbeat();
                         reinitializeLeaderStates();
                         return;
+                    } else {
+                        logger.info("[{}] election aborted", getCurrentRole());
                     }
-                }
+                } // else retry
             } catch (InterruptedException | ExecutionException e) {
                 throw Throwables.propagate(e);
             } catch (TimeoutException e) {
-                logger.info("[{}] election timeout, restart election", currentRole.get());
+                logger.info("[{}] election timeout, restart election", getCurrentRole());
             }
         }
-        logger.info("[{}] lose election, current term {}", currentRole.get(), persistence.getCurrentTerm());
+        logger.info("[{}] lose election, current term {}", getCurrentRole(), persistence.getCurrentTerm());
     }
 
     @Override
@@ -275,7 +278,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
         // apply commits if any pending ones are present
         applyCommits();
 
-        Role role = currentRole.get();
+        Role role = getCurrentRole();
         switch (role) {
             case Follower:
                 checkElectionTimeout();

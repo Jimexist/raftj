@@ -27,14 +27,14 @@ public class FilePersistence implements Persistence {
     private final Path path;
     private final OutputStream outputStream;
     private long currentTerm;
-    private String voteFor;
+    private String votedFor;
     private final List<LogEntry> entries = Lists.newArrayList();
     private final PersistenceEntry.Builder builder = PersistenceEntry.newBuilder();
 
     public FilePersistence(Path persistencePath) throws IOException {
         this.path = checkNotNull(persistencePath, "persistence path");
         this.currentTerm = 0L;
-        this.voteFor = null;
+        this.votedFor = null;
 
         if (!Files.exists(path)) {
             Files.createFile(path);
@@ -55,14 +55,14 @@ public class FilePersistence implements Persistence {
                 count++;
                 switch (entry.getPayloadCase()) {
                     case LOGENTRY:
-                        entries.add(entry.getLogEntry());
-                        checkState(entries.get(entries.size() - 1).getLogIndex() == entries.size());
+                        applyLogEntry(entry.getLogEntry());
                         break;
                     case CURRENTTERM:
                         currentTerm = entry.getCurrentTerm();
+                        votedFor = null;
                         break;
                     case VOTEDFOR:
-                        voteFor = entry.getVotedFor();
+                        votedFor = entry.getVotedFor();
                         break;
                     default:
                         throw new IllegalStateException("unknown payload");
@@ -83,6 +83,8 @@ public class FilePersistence implements Persistence {
             final long newTerm = currentTerm + 1L;
             builder.setCurrentTerm(newTerm).build().writeTo(outputStream);
             currentTerm = newTerm;
+            // clear voted for as well
+            votedFor = null;
             return currentTerm;
         } catch (IOException e) {
             throw Throwables.propagate(e);
@@ -95,6 +97,8 @@ public class FilePersistence implements Persistence {
             if (term > currentTerm) {
                 builder.setCurrentTerm(term).build().writeTo(outputStream);
                 currentTerm = term;
+                // clear voted for as well
+                votedFor = null;
                 return true;
             }
         } catch (IOException e) {
@@ -105,16 +109,16 @@ public class FilePersistence implements Persistence {
 
     @Nullable
     @Override
-    public synchronized String getVotedFor() {
-        return voteFor;
+    public synchronized String getVotedForInCurrentTerm() {
+        return votedFor;
     }
 
     @Override
     public synchronized boolean compareAndSetVoteFor(@Nullable String old, @Nullable String vote) {
-        if (Objects.equals(old, voteFor)) {
+        if (Objects.equals(old, votedFor)) {
             try {
                 builder.setVotedFor(vote).build().writeTo(outputStream);
-                voteFor = vote;
+                votedFor = vote;
                 return true;
             } catch (IOException e) {
                 throw Throwables.propagate(e);

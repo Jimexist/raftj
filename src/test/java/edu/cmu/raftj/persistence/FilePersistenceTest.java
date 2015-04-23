@@ -37,14 +37,14 @@ public class FilePersistenceTest {
     @Test
     public void testGetVotedFor() throws Exception {
         try (FilePersistence filePersistence = new FilePersistence(path)) {
-            assertEquals(null, filePersistence.getVotedFor());
+            assertEquals(null, filePersistence.getVotedForInCurrentTerm());
             assertEquals(true, filePersistence.compareAndSetVoteFor(null, "lol"));
             assertEquals(false, filePersistence.compareAndSetVoteFor(null, "lol"));
             assertEquals(true, filePersistence.compareAndSetVoteFor("lol", "hello"));
         }
 
         try (FilePersistence another = new FilePersistence(path)) {
-            assertEquals("hello", another.getVotedFor());
+            assertEquals("hello", another.getVotedForInCurrentTerm());
         }
     }
 

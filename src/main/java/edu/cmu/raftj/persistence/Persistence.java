@@ -17,7 +17,7 @@ public interface Persistence extends Closeable {
     boolean largerThanAndSetCurrentTerm(long term);
 
     @Nullable
-    String getVotedFor();
+    String getVotedForInCurrentTerm();
 
     boolean compareAndSetVoteFor(@Nullable String old, @Nullable String vote);
 
