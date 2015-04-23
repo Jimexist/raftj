@@ -41,7 +41,9 @@ public final class Client {
                 logger.info("sending command {} to {}", line, hostAndPort);
                 while (true) {
                     ClientMessageResponse response = sendCommand(hostAndPort, line);
-                    if (response.getSuccess()) {
+                    if (response == null) {
+                        logger.warn("null message received, retry");
+                    } else if (response.getSuccess()) {
                         break;
                     } else if (!"".equals(response.getLeaderID())) {
                         hostAndPort = HostAndPort.fromString(response.getLeaderID());

@@ -121,7 +121,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
                 updateCommitIndex(request);
                 builder.setSuccess(true);
-            } else if (lastEntry.getLogIndex() >= request.getPrevLogIndex()) {
+            } else if (persistence.getLastLogIndex() >= request.getPrevLogIndex()) {
                 final LogEntry entry = persistence.getLogEntry(request.getPrevLogIndex());
                 if (entry.getTerm() == request.getPrevLogTerm()) {
                     request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
@@ -190,12 +190,13 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             final long localLastLogEntryIndex = persistence.getLastLogIndex();
             if (nextIndex <= localLastLogEntryIndex) {
                 try {
+                    AppendEntriesRequest request = buildReplicationRequest(nextIndex);
                     AppendEntriesResponse response =
-                            communicator.sendAppendEntriesRequest(buildReplicationRequest(nextIndex), nextAudience).get();
+                            communicator.sendAppendEntriesRequest(request, nextAudience).get();
                     if (!response.getSuccess()) {
                         logger.warn("[{}] follower {} responded false for append entries request, " +
                                         "decrement next index to {} and retry",
-                                getCurrentRole(), nextIndex - 1);
+                                getCurrentRole(), nextFollower, nextIndex - 1);
                         synchronized (nextIndices) {
                             nextIndices.put(nextAudience, nextIndex - 1);
                         }
@@ -207,7 +208,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                             nextIndices.put(nextAudience, localLastLogEntryIndex + 1);
                         }
                         synchronized (matchIndices) {
-                            matchIndices.put(nextAudience, localLastLogEntryIndex + 1);
+                            matchIndices.put(nextAudience, localLastLogEntryIndex);
                         }
                     }
                 } catch (InterruptedException | ExecutionException e) {
@@ -221,17 +222,18 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     private void updateCommitIndexAfterReplications() {
         final long min, max;
         synchronized (matchIndices) {
-            min = Math.max(stateMachine.getCommitIndex(), matchIndices.values().stream().min(naturalOrder()).get());
+            min = matchIndices.values().stream().min(naturalOrder()).get();
             max = matchIndices.values().stream().max(naturalOrder()).get();
             assert max >= min;
         }
-        for (long idx = max; idx >= min; --idx) {
+        for (long idx = max; idx > stateMachine.getCommitIndex() && idx >= min; --idx) {
             final boolean isMajority;
             synchronized (matchIndices) {
                 final long finalIdx = idx;
                 final long count = matchIndices.values().stream().filter((v) -> v >= finalIdx).count();
                 isMajority = 2 * (count + 1) > (matchIndices.size() + 1);
             }
+            logger.warn("majority index {}, all match indices {}", idx, matchIndices.values());
             if (isMajority && persistence.getLogEntry(idx).getTerm() == getCurrentTerm()) {
                 stateMachine.increaseCommitIndex(idx);
                 logger.info("[{}] increase commit index to {}", getCurrentRole(), idx);

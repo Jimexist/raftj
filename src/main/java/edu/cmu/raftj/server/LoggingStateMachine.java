@@ -41,7 +41,7 @@ public class LoggingStateMachine implements StateMachine {
         try {
             stateMachineThread.submit(() -> {
                 while (lastApplied.get() < commitIndex.get()) {
-                    long index = lastApplied.getAndIncrement();
+                    long index = lastApplied.incrementAndGet();
                     Messages.LogEntry logEntry = checkNotNull(persistence.getLogEntry(index), "index %s is null", index);
                     String command = logEntry.getCommand();
                     applyCommand(index, command);
