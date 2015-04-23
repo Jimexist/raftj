@@ -138,7 +138,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                  final InputStream inputStream = client.getInputStream();
                  final OutputStream outputStream = client.getOutputStream()) {
                 final Request request = Request.parseDelimitedFrom(inputStream);
-                logger.info("handling {} request from {}:{}",
+                logger.debug("handling {} request from {}:{}",
                         request.getPayloadCase(), client.getInetAddress(), client.getPort());
                 switch (request.getPayloadCase()) {
                     case APPENDENTRIESREQUEST: {

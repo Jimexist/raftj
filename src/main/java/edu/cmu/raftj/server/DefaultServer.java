@@ -72,7 +72,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
         final VoteResponse.Builder builder = VoteResponse.newBuilder().setVoteGranted(false);
         final String candidateId = checkNotNull(voteRequest.getCandidateId(), "candidate ID");
-        final boolean upToDate = voteRequest.getLastLogIndex() >= (persistence.getLogEntriesSize() + 1);
+        final boolean upToDate = voteRequest.getLastLogIndex() >= persistence.getLogEntriesSize();
         if (voteRequest.getCandidateTerm() >= getCurrentTerm() && upToDate) {
             if (Objects.equals(candidateId, persistence.getVotedForInCurrentTerm()) ||
                     persistence.compareAndSetVoteFor(null, candidateId)) {
@@ -82,8 +82,11 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 logger.info("[{}] voted no for {} because already voted for {}",
                         getCurrentRole(), candidateId, persistence.getVotedForInCurrentTerm());
             }
+        } else if (upToDate) {
+            logger.info("[{}] voted no for {} because the term was too small, {} < {}",
+                    getCurrentRole(), candidateId, voteRequest.getCandidateTerm(), getCurrentTerm());
         } else {
-            logger.info("[{}] voted no for {} because the request was too old",
+            logger.info("[{}] voted no for {} because the log is not up to date",
                     getCurrentRole(), candidateId);
         }
         return builder.setTerm(getCurrentTerm()).build();
@@ -106,7 +109,8 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
     @Override
     public AppendEntriesResponse onAppendEntriesRequest(AppendEntriesRequest request) {
-        logger.info("[{}] append entries request {}", getCurrentRole(), request);
+        logger.info("[{}] append entries request from {}, term {}",
+                getCurrentRole(), request.getLeaderId(), request.getLeaderTerm());
         syncCurrentTerm(request.getLeaderTerm());
         heartbeats.addLast(System.currentTimeMillis());
 
@@ -114,7 +118,11 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
         // the term is new
         if (request.getLeaderTerm() >= getCurrentTerm()) {
             final LogEntry lastEntry = persistence.getLastLogEntry();
-            if (lastEntry != null && lastEntry.getLogIndex() >= request.getPrevLogIndex()) {
+            if (lastEntry == null) {
+                request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
+                updateCommitIndex(request);
+                builder.setSuccess(true);
+            } else if (lastEntry.getLogIndex() >= request.getPrevLogIndex()) {
                 final LogEntry entry = persistence.getLogEntry(request.getPrevLogIndex());
                 if (entry.getTerm() == request.getPrevLogTerm()) {
                     request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
@@ -160,7 +168,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             public void onSuccess(List<AppendEntriesResponse> result) {
                 // update terms
                 result.stream().filter(Objects::nonNull).forEach((res) -> syncCurrentTerm(res.getTerm()));
-                logger.info("[{}] successfully got result of append entries {}", getCurrentRole(), result);
+                // logger.info("[{}] successfully got result of append entries {}", getCurrentRole(), result);
             }
 
             @Override
@@ -322,7 +330,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     }
 
     private long getElectionTimeout() {
-        return 100 + random.nextInt(50);
+        return 150 + random.nextInt(150);
     }
 
     @Override

@@ -161,7 +161,7 @@ public class FilePersistence implements Persistence {
                     checkArgument(Objects.equals(current.getCommand(), logEntry.getCommand()),
                             "command mismatch, current %s, param %s", current.getCommand(), logEntry.getCommand());
                 } else {
-                    logger.info("entry mismatch at {}, local term {}, remote term {}, rewrite...",
+                    logger.warn("entry mismatch at {}, local term {}, remote term {}, rewrite...",
                             index, current.getTerm(), logEntry.getTerm());
                     entries.subList(index, entries.size()).clear();
                     entries.add(logEntry);
