@@ -158,7 +158,7 @@ public class FilePersistence implements Persistence {
     }
 
     @Override
-    public synchronized void applyLogEntry(LogEntry logEntry) {
+    public synchronized void applyLogEntry(final LogEntry logEntry) {
         try {
             final int index = logIndexToListIndex(logEntry.getLogIndex());
             if (index == entries.size()) {
@@ -174,7 +174,7 @@ public class FilePersistence implements Persistence {
                             index, current.getTerm(), logEntry.getTerm());
                     entries.subList(index, entries.size()).clear();
                     entries.add(logEntry);
-                    checkState(entries.size() == index);
+                    checkState(entries.size() == index, "index {} at position {}", index, entries.size());
                 }
             } else {
                 checkPositionIndex(index, entries.size(), "log entry too new");

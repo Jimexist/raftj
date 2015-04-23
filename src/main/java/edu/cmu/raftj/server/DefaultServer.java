@@ -114,19 +114,18 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
         heartbeats.addLast(System.currentTimeMillis());
 
         final AppendEntriesResponse.Builder builder = AppendEntriesResponse.newBuilder().setSuccess(false);
+        boolean valid = false;
         // the term is new
         if (request.getLeaderTerm() >= getCurrentTerm()) {
             final LogEntry lastEntry = persistence.getLastLogEntry();
             if (lastEntry == null) {
-                request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
-                updateCommitIndex(request);
-                builder.setSuccess(true);
+                valid = true;
+            } else if (request.getPrevLogIndex() == 0) {
+                valid = true;
             } else if (persistence.getLastLogIndex() >= request.getPrevLogIndex()) {
-                final LogEntry entry = persistence.getLogEntry(request.getPrevLogIndex());
+                LogEntry entry = persistence.getLogEntry(request.getPrevLogIndex());
                 if (entry.getTerm() == request.getPrevLogTerm()) {
-                    request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
-                    updateCommitIndex(request);
-                    builder.setSuccess(true);
+                    valid = true;
                 } else {
                     logger.warn("[{}] prev entry mismatch, local last term {}, remote prev term {}",
                             getCurrentRole(), entry.getTerm(), request.getPrevLogTerm());
@@ -136,6 +135,11 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                         getCurrentRole(),
                         request.getPrevLogIndex());
             }
+        }
+        if (valid) {
+            request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
+            updateCommitIndex(request);
+            builder.setSuccess(true);
         }
         return builder.setSenderID(getServerId()).setTerm(getCurrentTerm()).build();
     }
