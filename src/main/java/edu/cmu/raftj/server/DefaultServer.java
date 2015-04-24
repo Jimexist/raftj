@@ -197,7 +197,6 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             synchronized (nextIndices) {
                 nextIndex = nextIndices.get(nextAudience);
             }
-            assert nextIndex >= 1 : nextIndex + " " + nextIndices;
             final long localLastLogEntryIndex = persistence.getLastLogIndex();
             if (nextIndex <= localLastLogEntryIndex) {
                 try {
@@ -205,11 +204,12 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                     AppendEntriesResponse response =
                             communicator.sendAppendEntriesRequest(request, nextAudience).get();
                     if (!response.getSuccess()) {
+                        final long decremented = Math.max(1, nextIndex - 1);
                         logger.warn("[{}] follower {} responded false for append entries request, " +
-                                        "decrement next index to {} and retry",
-                                getCurrentRole(), nextFollower, nextIndex - 1);
+                                        "update next index to {} and retry",
+                                getCurrentRole(), nextFollower, decremented);
                         synchronized (nextIndices) {
-                            nextIndices.put(nextAudience, nextIndex - 1);
+                            nextIndices.put(nextAudience, decremented);
                         }
                         nextFollower.addLast(nextAudience);
                     } else {
@@ -289,12 +289,11 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
 
     private void reinitializeLeaderStates() {
         synchronized (nextIndices) {
+            nextIndices.clear();
             nextIndices.putAll(asMap(communicator.getAudience(), (x) -> persistence.getLastLogIndex() + 1));
-            for (Long value : nextIndices.values()) {
-                assert value > 0 : value;
-            }
         }
         synchronized (matchIndices) {
+            matchIndices.clear();
             matchIndices.putAll(asMap(communicator.getAudience(), (x) -> 0L));
         }
     }
