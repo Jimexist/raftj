@@ -40,15 +40,20 @@ public final class Client {
                 line = line.trim();
                 logger.info("sending command {} to {}", line, hostAndPort);
                 while (true) {
-                    ClientMessageResponse response = sendCommand(hostAndPort, line);
-                    if (response == null) {
-                        logger.warn("null message received, retry");
-                    } else if (response.getSuccess()) {
-                        break;
-                    } else if (!"".equals(response.getLeaderID())) {
-                        hostAndPort = HostAndPort.fromString(response.getLeaderID());
-                        logger.warn("resending {} to {} instead", line, hostAndPort);
+                    try {
+                        ClientMessageResponse response = sendCommand(hostAndPort, line);
+                        if (response == null) {
+                            logger.warn("response is null");
+                        } else if (response.getSuccess()) {
+                            break;
+                        } else if (!"".equals(response.getLeaderID())) {
+                            hostAndPort = HostAndPort.fromString(response.getLeaderID());
+                            logger.warn("resending {} to {} instead", line, hostAndPort);
+                        }
+                    } catch (Exception e) {
+                        logger.info("exception in sending, retry with delay");
                     }
+
                 }
             }
         }

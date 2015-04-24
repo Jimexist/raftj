@@ -50,7 +50,7 @@ def main():
         for i in xrange(2):
             to_stop = random.sample(servers.keys(), 2)
             for k in to_stop:
-                servers[k].terminate()
+                servers[k].kill()
                 servers[k].wait()
             time.sleep(1)
             for k in to_stop:

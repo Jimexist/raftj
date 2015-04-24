@@ -173,6 +173,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
 
     @Override
     protected void shutDown() throws Exception {
+        logger.warn("shutting communicator");
         serverSocket.close();
     }
 }

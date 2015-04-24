@@ -13,6 +13,7 @@ import javax.annotation.Nullable;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Objects;
 
@@ -189,5 +190,15 @@ public class FilePersistence implements Persistence {
     public synchronized void close() throws IOException {
         logger.info("closing persistence file {}", path);
         outputStream.close();
+    }
+
+    public static void main(String[] args) throws IOException {
+        checkArgument(args.length == 1);
+        try (FilePersistence filePersistence = new FilePersistence(Paths.get(args[0]))) {
+            int count = 0;
+            for (LogEntry logEntry : filePersistence.entries) {
+                System.out.printf("[#%d]=%d %s\n", ++count, logEntry.getLogIndex(), logEntry.getCommand());
+            }
+        }
     }
 }

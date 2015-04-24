@@ -197,7 +197,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             synchronized (nextIndices) {
                 nextIndex = nextIndices.get(nextAudience);
             }
-            assert nextIndex >= 1 : nextIndex;
+            assert nextIndex >= 1 : nextIndex + " " + nextIndices;
             final long localLastLogEntryIndex = persistence.getLastLogIndex();
             if (nextIndex <= localLastLogEntryIndex) {
                 try {
