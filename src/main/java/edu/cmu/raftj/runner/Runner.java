@@ -82,6 +82,12 @@ public final class Runner {
 
         final ServiceManager serviceManager = new ServiceManager(ImmutableList.of(communicator, server));
         serviceManager.addListener(new ServiceManager.Listener() {
+
+            @Override
+            public void healthy() {
+                logger.warn("all system healthy");
+            }
+
             @Override
             public void failure(Service service) {
                 logger.error("failure in service {}", service);

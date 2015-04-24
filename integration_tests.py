@@ -3,9 +3,14 @@ import os
 import subprocess
 import time
 import random
+from threading import Thread
 
 JAR = 'target/raftj-1.0-SNAPSHOT-jar-with-dependencies.jar'
 CLIENT_CLASS = 'edu.cmu.raftj.client.Client'
+
+
+def send_commands(client):
+    client.communicate("\n".join(map(str, xrange(1000))))
 
 def start_client(port):
     return subprocess.Popen([
@@ -19,6 +24,7 @@ def start_one_server(port):
     return subprocess.Popen([
         'java',
         '-Dorg.slf4j.simpleLogger.defaultLogLevel=warn',
+        '-ea',
         '-jar', JAR,
         'localhost:{}'.format(port),
         '{}.log'.format(port),
@@ -33,24 +39,25 @@ def start_all_servers():
 def main():
     servers = {}
     client = None
-    iters = iter(xrange(1, 10000))
     try:
-        client = start_client(17003)
         servers = start_all_servers()
         time.sleep(1)
-        for _ in xrange(1000):
-            client.communicate("command #{}".format(iters.next()))
-        for i in xrange(5):
-            time.sleep(3)
+        
+        client = start_client(17003)
+        thread = Thread(target=send_commands, args=(client,))
+        thread.start()
+        
+        for i in xrange(2):
             to_stop = random.sample(servers.keys(), 2)
             for k in to_stop:
                 servers[k].terminate()
                 servers[k].wait()
-            for _ in xrange(1000):
-                client.communicate("command #{}".format(iters.next()))
-            time.sleep(3)
+            time.sleep(1)
             for k in to_stop:
                 servers[k] = start_one_server(k)
+            time.sleep(5)
+                
+        thread.join()
     finally:
         for k, p in servers.iteritems():
             try:                

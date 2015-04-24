@@ -76,8 +76,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                 checkNotNull(value, "the value passed from client is null");
                 settableFuture.set(value);
             } catch (Exception e) {
-                logger.warn("error in sending vote request to {}, exception is {}",
-                        hostAndPort, e);
+                logger.warn("error in sending vote request to {}: {}", hostAndPort, e);
                 settableFuture.setException(e);
             }
         });
@@ -162,7 +161,7 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                         throw new IllegalArgumentException("payload not set");
                 }
             } catch (Exception e) {
-                logger.warn("exception while handling client", e);
+                logger.warn("exception while handling client, exception is {}", e.toString());
             }
         }
     }

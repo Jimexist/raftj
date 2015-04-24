@@ -174,7 +174,7 @@ public class FilePersistence implements Persistence {
                             index, current.getTerm(), logEntry.getTerm());
                     entries.subList(index, entries.size()).clear();
                     entries.add(logEntry);
-                    checkState(entries.size() == index, "index {} at position {}", index, entries.size());
+                    checkState(entries.size() == index, "index %s at position %s", index, entries.size());
                 }
             } else {
                 checkPositionIndex(index, entries.size(), "log entry too new");

@@ -106,40 +106,44 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
         stateMachine.increaseCommitIndex(leaderCommitIndex);
     }
 
+    private boolean isAppendRequestConsistent(AppendEntriesRequest request) {
+        final LogEntry lastEntry = persistence.getLastLogEntry();
+        if (lastEntry == null) {
+            return true;
+        } else if (request.getPrevLogIndex() == 0) {
+            return true;
+        } else if (persistence.getLastLogIndex() >= request.getPrevLogIndex()) {
+            final LogEntry entry = persistence.getLogEntry(request.getPrevLogIndex());
+            if (entry.getTerm() == request.getPrevLogTerm()) {
+                return true;
+            } else {
+                logger.warn("[{}] prev entry mismatch, local last term {}, remote prev term {}",
+                        getCurrentRole(), entry.getTerm(), request.getPrevLogTerm());
+            }
+        } else {
+            logger.warn("[{}] log entries are too new, remote prev index {}, local is {}",
+                    getCurrentRole(),
+                    request.getPrevLogIndex(),
+                    persistence.getLastLogIndex());
+        }
+        return false;
+    }
+
     @Override
     public AppendEntriesResponse onAppendEntriesRequest(AppendEntriesRequest request) {
-        logger.info("[{}] append entries request / heartbeat from {}, term {}",
-                getCurrentRole(), request.getLeaderId(), request.getLeaderTerm());
+        logger.info("[{}] append entries request / heartbeat from {}, term {}, log size {}",
+                getCurrentRole(), request.getLeaderId(), request.getLeaderTerm(), request.getLogEntriesCount());
         syncCurrentTerm(request.getLeaderTerm(), request.getLeaderId());
         heartbeats.addLast(System.currentTimeMillis());
 
         final AppendEntriesResponse.Builder builder = AppendEntriesResponse.newBuilder().setSuccess(false);
-        boolean valid = false;
         // the term is new
         if (request.getLeaderTerm() >= getCurrentTerm()) {
-            final LogEntry lastEntry = persistence.getLastLogEntry();
-            if (lastEntry == null) {
-                valid = true;
-            } else if (request.getPrevLogIndex() == 0) {
-                valid = true;
-            } else if (persistence.getLastLogIndex() >= request.getPrevLogIndex()) {
-                LogEntry entry = persistence.getLogEntry(request.getPrevLogIndex());
-                if (entry.getTerm() == request.getPrevLogTerm()) {
-                    valid = true;
-                } else {
-                    logger.warn("[{}] prev entry mismatch, local last term {}, remote prev term {}",
-                            getCurrentRole(), entry.getTerm(), request.getPrevLogTerm());
-                }
-            } else {
-                logger.warn("[{}] log entries are too new, remote prev index {}",
-                        getCurrentRole(),
-                        request.getPrevLogIndex());
+            if (isAppendRequestConsistent(request)) {
+                request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
+                updateCommitIndex(request);
+                builder.setSuccess(true);
             }
-        }
-        if (valid) {
-            request.getLogEntriesList().stream().forEach(persistence::applyLogEntry);
-            updateCommitIndex(request);
-            builder.setSuccess(true);
         }
         return builder.setSenderID(getServerId()).setTerm(getCurrentTerm()).build();
     }
@@ -168,6 +172,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     }
 
     private AppendEntriesRequest buildReplicationRequest(long from) {
+        assert from >= 1 : from;
         ImmutableList<LogEntry> entries = persistence.getLogEntriesFrom(from);
         AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder()
                 .setLeaderTerm(getCurrentTerm())
@@ -175,8 +180,9 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 .setLeaderCommitIndex(stateMachine.getCommitIndex())
                 .addAllLogEntries(entries);
         if (from > 1) {
-            final LogEntry prev = persistence.getLogEntry(from - 1);
-            builder.setPrevLogIndex(prev.getLogIndex()).setPrevLogTerm(prev.getTerm());
+            final LogEntry previousEntry = persistence.getLogEntry(from - 1);
+            builder.setPrevLogIndex(previousEntry.getLogIndex())
+                    .setPrevLogTerm(previousEntry.getTerm());
         } else {
             builder.setPrevLogTerm(0L).setPrevLogIndex(0L);
         }
@@ -191,6 +197,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
             synchronized (nextIndices) {
                 nextIndex = nextIndices.get(nextAudience);
             }
+            assert nextIndex >= 1 : nextIndex;
             final long localLastLogEntryIndex = persistence.getLastLogIndex();
             if (nextIndex <= localLastLogEntryIndex) {
                 try {
@@ -206,7 +213,7 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                         }
                         nextFollower.addLast(nextAudience);
                     } else {
-                        logger.info("[{}] successfully replicated logs [{}, {}) to follower {}",
+                        logger.warn("[{}] successfully replicated logs [{}, {}) to follower {}",
                                 getCurrentRole(), nextIndex, localLastLogEntryIndex + 1, nextAudience);
                         synchronized (nextIndices) {
                             nextIndices.put(nextAudience, localLastLogEntryIndex + 1);
@@ -237,7 +244,6 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                 final long count = matchIndices.values().stream().filter((v) -> v >= finalIdx).count();
                 isMajority = 2 * (count + 1) > (matchIndices.size() + 1);
             }
-            logger.warn("majority index {}, all match indices {}", idx, matchIndices.values());
             if (isMajority && persistence.getLogEntry(idx).getTerm() == getCurrentTerm()) {
                 stateMachine.increaseCommitIndex(idx);
                 logger.info("[{}] increase commit index to {}", getCurrentRole(), idx);
@@ -284,6 +290,9 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     private void reinitializeLeaderStates() {
         synchronized (nextIndices) {
             nextIndices.putAll(asMap(communicator.getAudience(), (x) -> persistence.getLastLogIndex() + 1));
+            for (Long value : nextIndices.values()) {
+                assert value > 0 : value;
+            }
         }
         synchronized (matchIndices) {
             matchIndices.putAll(asMap(communicator.getAudience(), (x) -> 0L));
