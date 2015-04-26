@@ -1,11 +1,16 @@
-# raftj
+# Raftj
 
+An implementation for the `Raft` consensus algorithm in Java 8, with Guava and Google Protocol Buffers.
 
-## hwo to compile
+## how to compile
 
 use maven:
 
     mvn package
+
+## how to run tests:
+
+    ./integration_tests.py
 
 ## dependencies
 
