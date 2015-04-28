@@ -6,4 +6,5 @@ pom.xml.next
 release.properties
 .idea/
 *.iml
+*.pyc
 src/main/protobuf-generated/**/*.java
