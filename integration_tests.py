@@ -1,24 +1,12 @@
 #!/usr/bin/env python
 import os
+import sys
 import subprocess
 import time
 import random
-from threading import Thread
+from raftjclient import send_command
 
 JAR = 'target/raftj-1.0-SNAPSHOT-jar-with-dependencies.jar'
-CLIENT_CLASS = 'edu.cmu.raftj.client.Client'
-
-
-def send_commands(client):
-    client.communicate("\n".join(map(str, xrange(1000))))
-
-def start_client(port):
-    return subprocess.Popen([
-        'java',
-        '-cp', JAR,
-        CLIENT_CLASS,
-        'localhost:{}'.format(port)
-    ], stdin=subprocess.PIPE)
 
 def start_one_server(port):
     return subprocess.Popen([
@@ -38,26 +26,34 @@ def start_all_servers():
 
 def main():
     servers = {}
-    client = None
     try:
         servers = start_all_servers()
+        time.sleep(5)
+        
+        print send_command('127.0.0.1:17003', 'hello')
+        time.sleep(1)
+        print send_command('127.0.0.1:17001', 'world')
+        time.sleep(1)
+        print send_command('127.0.0.1:17005', 'lol')
         time.sleep(1)
         
-        client = start_client(17003)
-        thread = Thread(target=send_commands, args=(client,))
-        thread.start()
-        
-        for i in xrange(2):
-            to_stop = random.sample(servers.keys(), 2)
-            for k in to_stop:
-                servers[k].kill()
-                servers[k].wait()
-            time.sleep(1)
-            for k in to_stop:
-                servers[k] = start_one_server(k)
-            time.sleep(5)
-                
-        thread.join()
+        # for i in xrange(2):
+        #     to_stop = random.sample(servers.keys(), 2)
+        #     for k in to_stop:
+        #         servers[k].kill()
+        #         servers[k].wait()
+        #     time.sleep(1)
+        #
+        #     send_command('127.0.0.1:17002', 'tuple')
+        #     time.sleep(1)
+        #
+        #     for k in to_stop:
+        #         servers[k] = start_one_server(k)
+        #     time.sleep(5)
+        #
+        #     send_command('127.0.0.1:17002', 'again')
+        #     time.sleep(1)
+
     finally:
         for k, p in servers.iteritems():
             try:                
@@ -65,11 +61,6 @@ def main():
                 p.wait()
             except Exception:
                 pass
-        try:
-            client.terminate()
-            client.wait()
-        except Exception:
-            pass
 
 if __name__ == "__main__":
     main()
