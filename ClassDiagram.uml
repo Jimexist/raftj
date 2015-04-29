@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Diagram>
+  <ID>JAVA</ID>
+  <OriginalElement>edu.cmu.raftj.server.LoggingStateMachine</OriginalElement>
+  <nodes>
+    <node x="563.0" y="90.0">edu.cmu.raftj.server.LoggingStateMachine</node>
+    <node x="28.411111111111097" y="90.0">edu.cmu.raftj.rpc.DefaultCommunicator</node>
+    <node x="416.0" y="90.0">edu.cmu.raftj.persistence.FilePersistence</node>
+    <node x="301.0" y="0.0">edu.cmu.raftj.server.Server</node>
+    <node x="0.0" y="0.0">edu.cmu.raftj.rpc.RequestListener</node>
+    <node x="400.75" y="0.0">edu.cmu.raftj.persistence.Persistence</node>
+    <node x="154.0" y="0.0">edu.cmu.raftj.rpc.Communicator</node>
+    <node x="559.25" y="0.0">edu.cmu.raftj.server.StateMachine</node>
+    <node x="274.34722222222223" y="90.0">edu.cmu.raftj.server.DefaultServer</node>
+  </nodes>
+  <notes />
+  <edges>
+    <edge source="edu.cmu.raftj.rpc.DefaultCommunicator" target="edu.cmu.raftj.rpc.Communicator">
+      <point x="43.25" y="-15.0" />
+      <point x="158.1611111111111" y="70.0" />
+      <point x="185.75" y="70.0" />
+      <point x="-31.75" y="15.0" />
+    </edge>
+    <edge source="edu.cmu.raftj.persistence.FilePersistence" target="edu.cmu.raftj.persistence.Persistence">
+      <point x="0.0" y="-15.0" />
+      <point x="26.25" y="15.0" />
+    </edge>
+    <edge source="edu.cmu.raftj.server.LoggingStateMachine" target="edu.cmu.raftj.server.StateMachine">
+      <point x="0.0" y="-15.0" />
+      <point x="29.25" y="15.0" />
+    </edge>
+    <edge source="edu.cmu.raftj.server.DefaultServer" target="edu.cmu.raftj.server.Server">
+      <point x="0.0" y="-15.0" />
+      <point x="333.34722222222223" y="70.0" />
+      <point x="337.0" y="70.0" />
+      <point x="0.0" y="15.0" />
+    </edge>
+    <edge source="edu.cmu.raftj.server.DefaultServer" target="edu.cmu.raftj.rpc.Communicator">
+      <point x="-23.599999999999966" y="-15.0" />
+      <point x="309.74722222222226" y="50.0" />
+      <point x="249.25" y="50.0" />
+      <point x="31.75" y="15.0" />
+    </edge>
+    <edge source="edu.cmu.raftj.rpc.DefaultCommunicator" target="edu.cmu.raftj.rpc.RequestListener">
+      <point x="-43.25" y="-15.0" />
+      <point x="71.6611111111111" y="70.0" />
+      <point x="33.5" y="70.0" />
+      <point x="-33.5" y="15.0" />
+    </edge>
+    <edge source="edu.cmu.raftj.server.DefaultServer" target="edu.cmu.raftj.server.StateMachine">
+      <point x="47.19999999999999" y="-15.0" />
+      <point x="380.5472222222222" y="70.0" />
+      <point x="588.5" y="70.0" />
+      <point x="-29.25" y="15.0" />
+    </edge>
+    <edge source="edu.cmu.raftj.server.DefaultServer" target="edu.cmu.raftj.persistence.Persistence">
+      <point x="23.600000000000023" y="-15.0" />
+      <point x="356.94722222222225" y="60.0" />
+      <point x="427.0" y="60.0" />
+      <point x="-26.25" y="15.0" />
+    </edge>
+    <edge source="edu.cmu.raftj.server.DefaultServer" target="edu.cmu.raftj.rpc.RequestListener">
+      <point x="-47.19999999999999" y="-15.0" />
+      <point x="286.14722222222224" y="60.0" />
+      <point x="100.5" y="60.0" />
+      <point x="33.5" y="15.0" />
+    </edge>
+  </edges>
+  <settings layout="Hierarchic Group" zoom="1.0" x="365.5" y="60.0" />
+  <SelectedNodes />
+  <Categories />
+  <SCOPE>All</SCOPE>
+  <VISIBILITY>private</VISIBILITY>
+</Diagram>
+
