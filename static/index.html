@@ -19,24 +19,26 @@
           <h1>Server Status</h1>
         </div>
       </div>
-      <div class="row" ng-controller="ServerStatusController as serverStatus">
+      <div class="row" ng-controller="ServerStatusController">
         <table class="table table-striped table-bordered col-md-12">
           <thead>
             <tr>
               <th>Address</th>
-              <th>Status</th>
+              <th>Leader?</th>
               <th>Leader Address</th>
-              <th>Ping</th>
+              <th>Last Ping</th>
+              <th>Last Ping Delay (ms)</th>
               <th>Operation</th>
             </tr>
           </thead>
           <tbody>
-            <tr ng-repeat="server in serverStatus.servers">
+            <tr ng-repeat="server in servers">
               <td>{{server.address}}</td>
               <td>{{server.status}}</td>
               <td>{{server.leaderID}}</td>
               <td>{{server.ping}}</td>
-              <td><button class="btn btn-warning" ng-click="serverStatus.stop(server.address)">stop</button></td>
+              <td>{{server.pingTime}}</td>
+              <td><button class="btn btn-warning" ng-click="stop(server.address)">stop</button></td>
             </tr>
           </tbody>
         </table>

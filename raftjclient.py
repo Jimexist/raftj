@@ -37,8 +37,9 @@ def socket_read_n(sock, n):
         n -= len(data)
     return buf
 
-def send_command(hostport, command):
+def send_command(hostport, command, follow=True):
     sent = False
+    resp = None
     while not sent:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -62,9 +63,12 @@ def send_command(hostport, command):
             resp = messages_pb2.ClientMessageResponse()
             resp.ParseFromString(msg_buf)
             sent, hostport = resp.success, resp.leaderID
+            
+            if not follow:
+                return resp, end - start, ''
+                
         except Exception as e:
-            pass
-            # print >> sys.stderr, 'exception', e
+            return None, end - start, str(e)
         finally:
             sock.close()
-    return end - start
+    return resp, end - start, ''

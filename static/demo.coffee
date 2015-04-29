@@ -1,32 +1,80 @@
-all_servers = ("localhost:#{i}" for i in [17001, 17002, 17003, 17004, 17005])
-
 angular.module('project', [])
 
-.controller('ServerStatusController', () -> 
+.controller('ServerStatusController', ['$scope', '$interval', ($scope, $interval) -> 
 
-  serverStatus = this
+  $scope.servers = []
   
-  serverStatus.servers = ({address: server, status: 1, leaderID: server, ping: 1} for server in all_servers)
+  $scope.init = () ->
+    $.get "/api/servers", (data) ->
+      $scope.servers = ({
+        address: address,
+        ping: '',
+        pingDelay: -1,
+        status: '',
+        leaderID: ''
+      } for address in JSON.parse(data))
+      $scope.$apply()
   
-  serverStatus.restart = (address) ->
+  $scope.restart = (address) ->
     console.log "restarting #{address}"
     $.ajax
       url: encodeURI("/api/servers/#{address}/start")
       method: 'POST'
-      success: (data) -> console.log data
-      error: (err) -> console.log err
+      success: (data) -> 
+        console.log data
+      error: (err) -> 
+        alert err
   
-  serverStatus.stop = (address) ->
+  $scope.stop = (address) ->
     console.log "stopping #{address}"
     $.ajax
       url: encodeURI("/api/servers/#{address}/stop")
       method: 'POST'
-      success: (data) -> console.log data
-      error: (err) -> console.log err
-)
+      success: (data) -> 
+        console.log data
+      error: (err) -> 
+        alert err
+  
+  $scope.updateStatus = () ->
+    for i in [0..($scope.servers.length-1)]
+      do (i) ->
+        address = $scope.servers[i].address
+        $.ajax
+          url: encodeURI("/api/servers/#{address}/status")
+          success: (data) ->
+            data = JSON.parse(data)
+            $scope.servers[i].status = data.status
+            $scope.servers[i].leaderID = data.leaderID
+            $scope.servers[i].ping = data.msg or (new Date()).toTimeString()
+            $scope.servers[i].pingTime = Math.round(Number(data.time) * 1000 * 1000) / 1000.0
+          error: (err) -> 
+            console.log err
+  
+  stop = undefined
+  
+  $scope.poll = () ->
+    console.log 'start polling'
+    if angular.isDefined(stop)
+      console.log 'stop already defined, return'
+      return
+    stop = $interval(() -> 
+      $scope.updateStatus()
+    , 1000)
+    
+  $scope.stopPolling = () ->
+    if angular.isDefined(stop)
+      $interval.cancel stop
+      stop = undefined
+  
+  $scope.$on('destroy', () -> $scope.stopPolling())
+  
+  $scope.init()
+  $scope.poll()
+  
+])
 
-.controller('ClientController', () ->
+.controller('ClientController', ['$scope', () ->
 
   client = this
   
-)
+])

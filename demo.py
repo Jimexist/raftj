@@ -48,11 +48,17 @@ def main():
             
         @app.route("/api/servers/<address>/status")
         def get_status(address):
-            pass
+            resp, time, msg = send_command(address, '', follow=False)
+            return json.dumps({
+                'status': resp.success if resp else 'error',
+                'leaderID': resp.leaderID if resp else '',
+                'message': msg, 
+                'time': time
+            })   
             
         @app.route("/api/servers/<address>/command", methods=['POST'])
-        def send_command(address):
-            pass
+        def command(address):
+            return 'not implemented'
     
         @app.route("/api/servers/<address>/start", methods=['POST'])
         def restart_server(address):
@@ -88,7 +94,7 @@ def main():
             else:
                 return json.dumps({"message": "server '{}' is not valid".format(address)})
 
-        app.run(debug=True)
+        app.run(debug=False)
         
     finally:
         for k, p in servers.iteritems():
