@@ -58,7 +58,17 @@ def main():
             
         @app.route("/api/servers/<address>/command", methods=['POST'])
         def command(address):
-            return 'not implemented'
+            if 'command' in request.json:
+                command = request.json['command']
+                resp, time, msg = send_command(address, command)
+                return json.dumps({
+                    'status': resp.success if resp else 'error',
+                    'leaderID': resp.leaderID if resp else '',
+                    'message': msg,
+                    'time': time
+                })
+            else:
+                return json.dumps({"message": "'data' is not set"})
     
         @app.route("/api/servers/<address>/start", methods=['POST'])
         def start_server(address):

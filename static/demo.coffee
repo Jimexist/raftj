@@ -4,7 +4,12 @@ angular.module('project', [])
 
   $scope.servers = []
   
+  $scope.sending = false
+  
   $scope.init = () ->
+    $.ajaxSetup
+        timeout: 2000
+    
     $.get "/api/servers", (data) ->
       addresses = JSON.parse(data)
       addresses.sort()
@@ -19,7 +24,7 @@ angular.module('project', [])
       method: 'POST'
       success: (data) -> 
         alert data
-      error: (err) -> 
+      error: (xhr, ajaxOptions, err) -> 
         alert err
   
   $scope.start = (address) ->
@@ -28,7 +33,7 @@ angular.module('project', [])
       method: 'POST'
       success: (data) -> 
         alert data
-      error: (err) -> 
+      error: (xhr, ajaxOptions, err) -> 
         alert err
   
   $scope.stop = (address) ->
@@ -37,7 +42,19 @@ angular.module('project', [])
       method: 'POST'
       success: (data) -> 
         alert data
-      error: (err) -> 
+      error: (xhr, ajaxOptions, err) -> 
+        alert err
+        
+  $scope.send_client_command = (address, command) ->
+    $.ajax
+      url: encodeURI("/api/servers/#{address}/command")
+      method: 'POST'
+      contentType: 'application/json'
+      data: JSON.stringify({'command': command})
+      success: (data) ->
+        resp = JSON.parse(data)
+        alert "successfully sent command, reply message: '#{resp.message}', request time: #{resp.time}s"
+      error: (xhr, ajaxOptions, err) ->
         alert err
   
   $scope.updateStatus = () ->
@@ -54,7 +71,7 @@ angular.module('project', [])
             $scope.servers[i].leaderID = data.leaderID
             $scope.servers[i].ping = data.msg or "#{now.toISOString()}"
             $scope.servers[i].pingTime = Math.round(Number(data.time) * 1000 * 1000) / 1000.0
-          error: (err) -> 
+          error: (xhr, ajaxOptions, err) -> 
             $scope.servers[i].online = false
             $scope.servers[i].leader = undefined
             $scope.servers[i].leaderID = undefined
@@ -68,7 +85,7 @@ angular.module('project', [])
       return
     stop = $interval(() -> 
       $scope.updateStatus()
-    , 500)
+    , 1000)
     
   $scope.stopPolling = () ->
     if angular.isDefined(stop)
@@ -79,11 +96,5 @@ angular.module('project', [])
   
   $scope.init()
   $scope.poll()
-  
-])
-
-.controller('ClientController', ['$scope', () ->
-
-  client = this
   
 ])

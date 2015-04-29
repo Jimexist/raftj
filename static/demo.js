@@ -4,7 +4,11 @@
     '$scope', '$interval', function($scope, $interval) {
       var stop;
       $scope.servers = [];
+      $scope.sending = false;
       $scope.init = function() {
+        $.ajaxSetup({
+          timeout: 2000
+        });
         return $.get("/api/servers", function(data) {
           var address, addresses;
           addresses = JSON.parse(data);
@@ -30,7 +34,7 @@
           success: function(data) {
             return alert(data);
           },
-          error: function(err) {
+          error: function(xhr, ajaxOptions, err) {
             return alert(err);
           }
         });
@@ -42,7 +46,7 @@
           success: function(data) {
             return alert(data);
           },
-          error: function(err) {
+          error: function(xhr, ajaxOptions, err) {
             return alert(err);
           }
         });
@@ -54,7 +58,25 @@
           success: function(data) {
             return alert(data);
           },
-          error: function(err) {
+          error: function(xhr, ajaxOptions, err) {
+            return alert(err);
+          }
+        });
+      };
+      $scope.send_client_command = function(address, command) {
+        return $.ajax({
+          url: encodeURI("/api/servers/" + address + "/command"),
+          method: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify({
+            'command': command
+          }),
+          success: function(data) {
+            var resp;
+            resp = JSON.parse(data);
+            return alert("successfully sent command, reply message: '" + resp.message + "', request time: " + resp.time + "s");
+          },
+          error: function(xhr, ajaxOptions, err) {
             return alert(err);
           }
         });
@@ -78,7 +100,7 @@
                 $scope.servers[i].ping = data.msg || ("" + (now.toISOString()));
                 return $scope.servers[i].pingTime = Math.round(Number(data.time) * 1000 * 1000) / 1000.0;
               },
-              error: function(err) {
+              error: function(xhr, ajaxOptions, err) {
                 $scope.servers[i].online = false;
                 $scope.servers[i].leader = void 0;
                 return $scope.servers[i].leaderID = void 0;
@@ -97,7 +119,7 @@
         }
         return stop = $interval(function() {
           return $scope.updateStatus();
-        }, 500);
+        }, 1000);
       };
       $scope.stopPolling = function() {
         if (angular.isDefined(stop)) {
@@ -110,11 +132,6 @@
       });
       $scope.init();
       return $scope.poll();
-    }
-  ]).controller('ClientController', [
-    '$scope', function() {
-      var client;
-      return client = this;
     }
   ]);
 

@@ -66,6 +66,8 @@ def send_command(hostport, command, follow=True):
             
             if not follow:
                 return resp, end - start, ''
+            if not sent:
+                print "forwarding to", hostport
                 
         except Exception as e:
             return None, end - start, str(e)
