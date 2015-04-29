@@ -30,16 +30,29 @@
       }
       return _results;
     })();
+    serverStatus.restart = function(address) {
+      console.log("restarting " + address);
+      return $.ajax({
+        url: encodeURI("/api/servers/" + address + "/start"),
+        method: 'POST',
+        success: function(data) {
+          return console.log(data);
+        },
+        error: function(err) {
+          return console.log(err);
+        }
+      });
+    };
     return serverStatus.stop = function(address) {
       console.log("stopping " + address);
       return $.ajax({
-        url: encodeURI("/api/stop/" + address),
+        url: encodeURI("/api/servers/" + address + "/stop"),
         method: 'POST',
-        success: function() {
-          return console.log("success");
+        success: function(data) {
+          return console.log(data);
         },
-        error: function() {
-          return console.log("error");
+        error: function(err) {
+          return console.log(err);
         }
       });
     };

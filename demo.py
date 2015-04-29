@@ -23,7 +23,8 @@ def start_one_server(port):
 def start_all_servers():
     servers = {}
     for i in ['17001','17002','17003','17004','17005']:
-        servers[i] = start_one_server(i)
+        print 'starting', i
+        servers["localhost:{}".format(i)] = start_one_server(i)
     return servers
 
 def main():
@@ -32,6 +33,8 @@ def main():
     
     try:
         servers = start_all_servers()
+        
+        print "starting all servers"
         
         app = Flask(__name__, static_url_path='')
 
@@ -42,21 +45,48 @@ def main():
         @app.route("/api/servers")
         def server_list():
             return json.dumps(servers.keys())
+            
+        @app.route("/api/servers/<address>/status")
+        def get_status(address):
+            pass
+            
+        @app.route("/api/servers/<address>/command", methods=['POST'])
+        def send_command(address):
+            pass
     
-        @app.route("/api/stop/<address>", methods=['POST'])
-        def stop():
+        @app.route("/api/servers/<address>/start", methods=['POST'])
+        def restart_server(address):
             if address in servers:
+                print "starting {}".format(address)
+                server = servers[address]
+                if server is None:
+                    try:
+                        servers[address] = None
+                        return json.dumps({"message": "server '{}' is successfully restarted".format(address)})
+                    except Exception:
+                        print >> sys.stderr, 'error stoping server', server
+                else:
+                    return json.dumps({"message": "server '{}' is currently running".format(address)})
+            else:
+                return json.dumps({"message": "server '{}' is not valid".format(address)})
+    
+        @app.route("/api/servers/<address>/stop", methods=['POST'])
+        def stop_server(address):
+            if address in servers:
+                print "stopping {}".format(address)
                 server = servers[address]
                 if server:
                     try:
                         server.terminate()
                         server.wait()
-                        servers[address] = None
-                        return json.dumps({"message": "server {} is successfully stopped".format(server)})
+                        servers[address] = start_one_server(address.split(":")[1])
+                        return json.dumps({"message": "server '{}' is successfully stopped".format(address)})
                     except Exception:
                         print >> sys.stderr, 'error stoping server', server
-                
-            return json.dumps({"message": "server {} is not running".format(server)})
+                else:
+                    return json.dumps({"message": "server '{}' is not currently running".format(address)})
+            else:
+                return json.dumps({"message": "server '{}' is not valid".format(address)})
 
         app.run(debug=True)
         

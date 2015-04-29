@@ -8,13 +8,21 @@ angular.module('project', [])
   
   serverStatus.servers = ({address: server, status: 1, leaderID: server, ping: 1} for server in all_servers)
   
+  serverStatus.restart = (address) ->
+    console.log "restarting #{address}"
+    $.ajax
+      url: encodeURI("/api/servers/#{address}/start")
+      method: 'POST'
+      success: (data) -> console.log data
+      error: (err) -> console.log err
+  
   serverStatus.stop = (address) ->
     console.log "stopping #{address}"
     $.ajax
-      url: encodeURI("/api/stop/#{address}")
+      url: encodeURI("/api/servers/#{address}/stop")
       method: 'POST'
-      success: () -> console.log "success"
-      error: () -> console.log "error"
+      success: (data) -> console.log data
+      error: (err) -> console.log err
 )
 
 .controller('ClientController', () ->
