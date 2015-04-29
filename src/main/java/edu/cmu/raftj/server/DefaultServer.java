@@ -20,10 +20,7 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.concurrent.GuardedBy;
 import java.net.ConnectException;
 import java.util.*;
-import java.util.concurrent.BlockingDeque;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -152,6 +149,12 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     public ClientMessageResponse onClientCommand(String command) {
         logger.info("[{}] client command {}", getCurrentRole(), checkNotNull(command, "command"));
         if (getCurrentRole() == Leader) {
+
+            if (command.isEmpty()) {
+                // empty command, directly return
+                return ClientMessageResponse.newBuilder().setSuccess(true).build();
+            }
+
             LogEntry logEntry = LogEntry.newBuilder()
                     .setCommand(command)
                     .setTerm(getCurrentTerm())
@@ -190,41 +193,41 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
     }
 
     private void sendAndWaitLogReplications() {
-        final Deque<HostAndPort> nextFollower = Queues.newArrayDeque(communicator.getAudience());
-        while (!nextFollower.isEmpty()) {
-            final HostAndPort nextAudience = nextFollower.removeFirst();
+        final Deque<HostAndPort> nextFollowerQueue = Queues.newArrayDeque(communicator.getAudience());
+        while (!nextFollowerQueue.isEmpty()) {
+            final HostAndPort nextFollower = nextFollowerQueue.removeFirst();
             final long nextIndex;
             synchronized (nextIndices) {
-                nextIndex = nextIndices.get(nextAudience);
+                nextIndex = nextIndices.get(nextFollower);
             }
             final long localLastLogEntryIndex = persistence.getLastLogIndex();
             if (nextIndex <= localLastLogEntryIndex) {
                 try {
-                    AppendEntriesRequest request = buildReplicationRequest(nextIndex);
-                    AppendEntriesResponse response =
-                            communicator.sendAppendEntriesRequest(request, nextAudience).get();
+                    final AppendEntriesRequest request = buildReplicationRequest(nextIndex);
+                    final AppendEntriesResponse response =
+                            communicator.sendAppendEntriesRequest(request, nextFollower).get();
                     if (!response.getSuccess()) {
                         final long decremented = Math.max(1, nextIndex - 1);
                         logger.warn("[{}] follower {} responded false for append entries request, " +
                                         "update next index to {} and retry",
-                                getCurrentRole(), nextFollower, decremented);
+                                getCurrentRole(), nextFollowerQueue, decremented);
                         synchronized (nextIndices) {
-                            nextIndices.put(nextAudience, decremented);
+                            nextIndices.put(nextFollower, decremented);
                         }
-                        nextFollower.addLast(nextAudience);
+                        nextFollowerQueue.addLast(nextFollower);
                     } else {
                         logger.warn("[{}] successfully replicated logs [{}, {}) to follower {}",
-                                getCurrentRole(), nextIndex, localLastLogEntryIndex + 1, nextAudience);
+                                getCurrentRole(), nextIndex, localLastLogEntryIndex + 1, nextFollower);
                         synchronized (nextIndices) {
-                            nextIndices.put(nextAudience, localLastLogEntryIndex + 1);
+                            nextIndices.put(nextFollower, localLastLogEntryIndex + 1);
                         }
                         synchronized (matchIndices) {
-                            matchIndices.put(nextAudience, localLastLogEntryIndex);
+                            matchIndices.put(nextFollower, localLastLogEntryIndex);
                         }
                     }
                 } catch (InterruptedException | ExecutionException e) {
-                    logger.warn("[{}] failed to send log replications to {}, retrying", getCurrentRole(), nextAudience);
-                    nextFollower.addLast(nextAudience);
+                    logger.warn("[{}] failed to send log replications to {}, retrying", getCurrentRole(), nextFollower);
+                    nextFollowerQueue.addLast(nextFollower);
                 }
             }
         }

@@ -6,14 +6,11 @@ angular.module('project', [])
   
   $scope.init = () ->
     $.get "/api/servers", (data) ->
+      addresses = JSON.parse(data)
+      addresses.sort()
       $scope.servers = ({
-        address: address,
-        ping: '',
-        pingDelay: -1,
-        leader: false,
-        online: false,
-        leaderID: ''
-      } for address in JSON.parse(data))
+        address: address
+      } for address in addresses)
       $scope.$apply()
   
   $scope.restart = (address) ->
@@ -51,14 +48,16 @@ angular.module('project', [])
           url: encodeURI("/api/servers/#{address}/status")
           success: (data) ->
             data = JSON.parse(data)
+            now = new Date()
             $scope.servers[i].online = true
             $scope.servers[i].leader = data.status
             $scope.servers[i].leaderID = data.leaderID
-            $scope.servers[i].ping = data.msg or (new Date()).toTimeString()
+            $scope.servers[i].ping = data.msg or "#{now.toISOString()}"
             $scope.servers[i].pingTime = Math.round(Number(data.time) * 1000 * 1000) / 1000.0
           error: (err) -> 
             $scope.servers[i].online = false
             $scope.servers[i].leader = undefined
+            $scope.servers[i].leaderID = undefined
   
   stop = undefined
   
@@ -69,7 +68,7 @@ angular.module('project', [])
       return
     stop = $interval(() -> 
       $scope.updateStatus()
-    , 1000)
+    , 500)
     
   $scope.stopPolling = () ->
     if angular.isDefined(stop)

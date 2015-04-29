@@ -72,7 +72,6 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
                 checkNotNull(value, "the value passed from client is null");
                 settableFuture.set(value);
             } catch (Exception e) {
-                logger.warn("error in sending vote request to {}: {}", hostAndPort, e);
                 settableFuture.setException(e);
             }
         });

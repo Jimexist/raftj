@@ -112,7 +112,7 @@ def main():
             else:
                 return json.dumps({"message": "server '{}' is not valid".format(address)})
 
-        app.run(debug=False)
+        app.run(debug=False, threaded=True)
         
     finally:
         for k, p in servers.iteritems():

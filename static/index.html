@@ -34,11 +34,19 @@
           </thead>
           <tbody>
             <tr ng-repeat="server in servers">
-              <td>{{server.address}}</td>
               <td>
-                <span ng-class="server.online ? 'label label-primary' : 'label label-danger'">{{server.online}}</span>
+                {{server.address}}
               </td>
-              <td>{{server.leader}}</td>
+              <td>
+                <span ng-class="server.online ? 'label label-success' : 'label label-danger'">
+                  {{server.online}}
+                </span>
+              </td>
+              <td>
+                <span ng-class="server.leader ? 'label label-success' : 'label label-default'">
+                  {{server.leader}}
+              </span>
+              </td>
               <td>{{server.leaderID}}</td>
               <td>{{server.ping}}</td>
               <td>{{server.pingTime}}</td>

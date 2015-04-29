@@ -6,20 +6,16 @@
       $scope.servers = [];
       $scope.init = function() {
         return $.get("/api/servers", function(data) {
-          var address;
+          var address, addresses;
+          addresses = JSON.parse(data);
+          addresses.sort();
           $scope.servers = (function() {
-            var _i, _len, _ref, _results;
-            _ref = JSON.parse(data);
+            var _i, _len, _results;
             _results = [];
-            for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-              address = _ref[_i];
+            for (_i = 0, _len = addresses.length; _i < _len; _i++) {
+              address = addresses[_i];
               _results.push({
-                address: address,
-                ping: '',
-                pingDelay: -1,
-                leader: false,
-                online: false,
-                leaderID: ''
+                address: address
               });
             }
             return _results;
@@ -73,16 +69,19 @@
             return $.ajax({
               url: encodeURI("/api/servers/" + address + "/status"),
               success: function(data) {
+                var now;
                 data = JSON.parse(data);
+                now = new Date();
                 $scope.servers[i].online = true;
                 $scope.servers[i].leader = data.status;
                 $scope.servers[i].leaderID = data.leaderID;
-                $scope.servers[i].ping = data.msg || (new Date()).toTimeString();
+                $scope.servers[i].ping = data.msg || ("" + (now.toISOString()));
                 return $scope.servers[i].pingTime = Math.round(Number(data.time) * 1000 * 1000) / 1000.0;
               },
               error: function(err) {
                 $scope.servers[i].online = false;
-                return $scope.servers[i].leader = void 0;
+                $scope.servers[i].leader = void 0;
+                return $scope.servers[i].leaderID = void 0;
               }
             });
           })(i));
@@ -98,7 +97,7 @@
         }
         return stop = $interval(function() {
           return $scope.updateStatus();
-        }, 1000);
+        }, 500);
       };
       $scope.stopPolling = function() {
         if (angular.isDefined(stop)) {
