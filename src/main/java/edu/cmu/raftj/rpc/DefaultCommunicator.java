@@ -22,7 +22,7 @@ import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.*;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
-import static java.util.concurrent.Executors.newSingleThreadExecutor;
+import static java.util.concurrent.Executors.newCachedThreadPool;
 
 /**
  * Default {@link Communicator} implementation that runs server on a dedicated thread, and boardCasts
@@ -51,15 +51,11 @@ public class DefaultCommunicator extends AbstractExecutionThreadService implemen
         checkArgument(!audience.contains(hostAndPort),
                 "server audiences %s cannot contain this server %s",
                 audience, hostAndPort);
-        broadcastExecutor = listeningDecorator(newSingleThreadExecutor(
+        broadcastExecutor = listeningDecorator(newCachedThreadPool(
                 new ThreadFactoryBuilder()
-                        .setNameFormat(hostAndPort + " BroadcastThread")
-                        .setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-                            @Override
-                            public void uncaughtException(Thread t, Throwable e) {
-                                logger.error("exception thrown", e);
-                            }
-                        }).build()
+                        .setNameFormat(hostAndPort + " Broadcast %d")
+                        .setDaemon(true)
+                        .build()
         ));
     }
 
