@@ -17,7 +17,8 @@
                 address: address,
                 ping: '',
                 pingDelay: -1,
-                status: '',
+                leader: false,
+                online: false,
                 leaderID: ''
               });
             }
@@ -27,12 +28,23 @@
         });
       };
       $scope.restart = function(address) {
-        console.log("restarting " + address);
+        return $.ajax({
+          url: encodeURI("/api/servers/" + address + "/restart"),
+          method: 'POST',
+          success: function(data) {
+            return alert(data);
+          },
+          error: function(err) {
+            return alert(err);
+          }
+        });
+      };
+      $scope.start = function(address) {
         return $.ajax({
           url: encodeURI("/api/servers/" + address + "/start"),
           method: 'POST',
           success: function(data) {
-            return console.log(data);
+            return alert(data);
           },
           error: function(err) {
             return alert(err);
@@ -40,12 +52,11 @@
         });
       };
       $scope.stop = function(address) {
-        console.log("stopping " + address);
         return $.ajax({
           url: encodeURI("/api/servers/" + address + "/stop"),
           method: 'POST',
           success: function(data) {
-            return console.log(data);
+            return alert(data);
           },
           error: function(err) {
             return alert(err);
@@ -63,13 +74,15 @@
               url: encodeURI("/api/servers/" + address + "/status"),
               success: function(data) {
                 data = JSON.parse(data);
-                $scope.servers[i].status = data.status;
+                $scope.servers[i].online = true;
+                $scope.servers[i].leader = data.status;
                 $scope.servers[i].leaderID = data.leaderID;
                 $scope.servers[i].ping = data.msg || (new Date()).toTimeString();
                 return $scope.servers[i].pingTime = Math.round(Number(data.time) * 1000 * 1000) / 1000.0;
               },
               error: function(err) {
-                return console.log(err);
+                $scope.servers[i].online = false;
+                return $scope.servers[i].leader = void 0;
               }
             });
           })(i));

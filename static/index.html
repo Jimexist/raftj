@@ -23,7 +23,8 @@
         <table class="table table-striped table-bordered col-md-12">
           <thead>
             <tr>
-              <th>Address</th>
+              <th>Server</th>
+              <th>Online?</th>
               <th>Leader?</th>
               <th>Leader Address</th>
               <th>Last Ping</th>
@@ -34,11 +35,27 @@
           <tbody>
             <tr ng-repeat="server in servers">
               <td>{{server.address}}</td>
-              <td>{{server.status}}</td>
+              <td>
+                <span ng-class="server.online ? 'label label-primary' : 'label label-danger'">{{server.online}}</span>
+              </td>
+              <td>{{server.leader}}</td>
               <td>{{server.leaderID}}</td>
               <td>{{server.ping}}</td>
               <td>{{server.pingTime}}</td>
-              <td><button class="btn btn-warning" ng-click="stop(server.address)">stop</button></td>
+              <td>
+                <button class="btn btn-success" ng-click="start(server.address)" ng-disabled="server.online">
+                  <i class="glyphicon glyphicon-ok"></i>
+                  Start
+                </button>
+                <button class="btn btn-danger" ng-click="stop(server.address)" ng-disabled="!server.online">
+                  <i class="glyphicon glyphicon-remove"></i>
+                  Stop
+                </button>
+                <button class="btn btn-info" ng-click="restart(server.address)" ng-disabled="!server.online">
+                  <i class="glyphicon glyphicon-repeat"></i>
+                  Restart
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>

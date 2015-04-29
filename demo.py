@@ -61,18 +61,36 @@ def main():
             return 'not implemented'
     
         @app.route("/api/servers/<address>/start", methods=['POST'])
-        def restart_server(address):
+        def start_server(address):
             if address in servers:
                 print "starting {}".format(address)
                 server = servers[address]
                 if server is None:
                     try:
-                        servers[address] = None
+                        servers[address] = start_one_server(address.split(":")[1])
+                        return json.dumps({"message": "server '{}' is successfully started".format(address)})
+                    except Exception:
+                        print >> sys.stderr, 'error starting server', server
+                else:
+                    return json.dumps({"message": "server '{}' is currently running".format(address)})
+            else:
+                return json.dumps({"message": "server '{}' is not valid".format(address)})
+                
+        @app.route("/api/servers/<address>/restart", methods=['POST'])
+        def restart_server(address):
+            if address in servers:
+                print "restarting {}".format(address)
+                server = servers[address]
+                if server:
+                    try:
+                        server.terminate()
+                        server.wait()
+                        servers[address] = start_one_server(address.split(":")[1])
                         return json.dumps({"message": "server '{}' is successfully restarted".format(address)})
                     except Exception:
                         print >> sys.stderr, 'error stoping server', server
                 else:
-                    return json.dumps({"message": "server '{}' is currently running".format(address)})
+                    return json.dumps({"message": "server '{}' is not currently running".format(address)})
             else:
                 return json.dumps({"message": "server '{}' is not valid".format(address)})
     
@@ -85,7 +103,7 @@ def main():
                     try:
                         server.terminate()
                         server.wait()
-                        servers[address] = start_one_server(address.split(":")[1])
+                        servers[address] = None
                         return json.dumps({"message": "server '{}' is successfully stopped".format(address)})
                     except Exception:
                         print >> sys.stderr, 'error stoping server', server

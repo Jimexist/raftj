@@ -10,28 +10,36 @@ angular.module('project', [])
         address: address,
         ping: '',
         pingDelay: -1,
-        status: '',
+        leader: false,
+        online: false,
         leaderID: ''
       } for address in JSON.parse(data))
       $scope.$apply()
   
   $scope.restart = (address) ->
-    console.log "restarting #{address}"
+    $.ajax
+      url: encodeURI("/api/servers/#{address}/restart")
+      method: 'POST'
+      success: (data) -> 
+        alert data
+      error: (err) -> 
+        alert err
+  
+  $scope.start = (address) ->
     $.ajax
       url: encodeURI("/api/servers/#{address}/start")
       method: 'POST'
       success: (data) -> 
-        console.log data
+        alert data
       error: (err) -> 
         alert err
   
   $scope.stop = (address) ->
-    console.log "stopping #{address}"
     $.ajax
       url: encodeURI("/api/servers/#{address}/stop")
       method: 'POST'
       success: (data) -> 
-        console.log data
+        alert data
       error: (err) -> 
         alert err
   
@@ -43,12 +51,14 @@ angular.module('project', [])
           url: encodeURI("/api/servers/#{address}/status")
           success: (data) ->
             data = JSON.parse(data)
-            $scope.servers[i].status = data.status
+            $scope.servers[i].online = true
+            $scope.servers[i].leader = data.status
             $scope.servers[i].leaderID = data.leaderID
             $scope.servers[i].ping = data.msg or (new Date()).toTimeString()
             $scope.servers[i].pingTime = Math.round(Number(data.time) * 1000 * 1000) / 1000.0
           error: (err) -> 
-            console.log err
+            $scope.servers[i].online = false
+            $scope.servers[i].leader = undefined
   
   stop = undefined
   
