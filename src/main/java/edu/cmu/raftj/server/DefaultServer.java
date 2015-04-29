@@ -9,7 +9,6 @@ import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.*;
 import edu.cmu.raftj.persistence.Persistence;
 import edu.cmu.raftj.rpc.Communicator;
-import edu.cmu.raftj.rpc.Messages;
 import edu.cmu.raftj.rpc.Messages.*;
 import edu.cmu.raftj.rpc.RequestListener;
 import org.slf4j.Logger;
@@ -17,7 +16,10 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.concurrent.GuardedBy;
 import java.net.ConnectException;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -201,43 +203,51 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
         return builder.build();
     }
 
+    private boolean replicateLog(HostAndPort follower) throws ExecutionException, InterruptedException {
+        final long nextIndex;
+        synchronized (nextIndices) {
+            nextIndex = nextIndices.get(follower);
+        }
+        final long localLastLogEntryIndex = persistence.getLastLogIndex();
+        if (nextIndex <= localLastLogEntryIndex) {
+            final AppendEntriesRequest request = buildReplicationRequest(nextIndex);
+            final AppendEntriesResponse response = communicator.sendAppendEntriesRequest(request, follower).get();
+            if (!response.getSuccess()) {
+                final long decremented = Math.max(1, nextIndex - 1);
+                logger.warn("[{}] follower {} responded false for append entries request, " +
+                                "update next index to {} and retry",
+                        getCurrentRole(), follower, decremented);
+                synchronized (nextIndices) {
+                    nextIndices.put(follower, decremented);
+                }
+            } else {
+                logger.warn("[{}] successfully replicated logs [{}, {}) to follower {}",
+                        getCurrentRole(), nextIndex, localLastLogEntryIndex + 1, follower);
+                synchronized (nextIndices) {
+                    nextIndices.put(follower, localLastLogEntryIndex + 1);
+                }
+                synchronized (matchIndices) {
+                    matchIndices.put(follower, localLastLogEntryIndex);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
 
     private Future<?> sendAndWaitLogReplications() {
         final SettableFuture<Boolean> finalFuture = SettableFuture.create();
         for (final HostAndPort follower : communicator.getAudience()) {
-            logReplicationExecutor.submit(() -> {
-                boolean retry = true;
-                while (retry) {
-                    final long nextIndex;
-                    synchronized (nextIndices) {
-                        nextIndex = nextIndices.get(follower);
-                    }
-                    final long localLastLogEntryIndex = persistence.getLastLogIndex();
-                    if (nextIndex <= localLastLogEntryIndex) {
-                        final AppendEntriesRequest request = buildReplicationRequest(nextIndex);
+            logReplicationExecutor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    while (true) {
                         try {
-                            final AppendEntriesResponse response = communicator.sendAppendEntriesRequest(request, follower).get();
-                            if (!response.getSuccess()) {
-                                final long decremented = Math.max(1, nextIndex - 1);
-                                logger.warn("[{}] follower {} responded false for append entries request, " +
-                                                "update next index to {} and retry",
-                                        getCurrentRole(), follower, decremented);
-                                synchronized (nextIndices) {
-                                    nextIndices.put(follower, decremented);
-                                }
-                            } else {
-                                logger.warn("[{}] successfully replicated logs [{}, {}) to follower {}",
-                                        getCurrentRole(), nextIndex, localLastLogEntryIndex + 1, follower);
-                                synchronized (nextIndices) {
-                                    nextIndices.put(follower, localLastLogEntryIndex + 1);
-                                }
-                                synchronized (matchIndices) {
-                                    matchIndices.put(follower, localLastLogEntryIndex);
-                                }
-                                retry = false;
+                            if (replicateLog(follower)) {
                                 if (updateCommitIndexAfterReplications()) {
                                     finalFuture.set(Boolean.TRUE);
                                 }
+                                break;
                             }
                         } catch (Exception e) {
                             logger.warn("[{}] failed to send log replications to {}, retrying", getCurrentRole(), follower);
@@ -245,7 +255,6 @@ public class DefaultServer extends AbstractScheduledService implements Server, R
                     }
                 }
             });
-
         }
         return finalFuture;
     }
